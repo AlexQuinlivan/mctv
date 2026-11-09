@@ -4,7 +4,7 @@
 
 <img src="docs/boot.png" width="500" alt="boot">
 
-Minecraft: Java Edition on tvOS 27, played with a game controller. Or, if you're so inclined, a keyboard and the siri remote. It's built on [Amethyst-iOS](https://github.com/AngelAuraMC/Amethyst-iOS) and runs Minecraft 26.3 with Fabric, Sodium and Controlify on Vulkan through MoltenVK.
+A Minecraft: Java Edition launcher on tvOS 27, played with a game controller. Or, if you're so inclined, a keyboard and the siri remote. It's built on [Amethyst-iOS](https://github.com/AngelAuraMC/Amethyst-iOS) and runs Minecraft 26.3 with Fabric, Sodium and Controlify on Vulkan through MoltenVK.
 
 
 I just wanted to play Minecraft with my kid. This repository is the culmination of that journey. Whilst this all may work for you and of course, you're welcome to try it, I hold no desire to keep this going further than my personal needs.
