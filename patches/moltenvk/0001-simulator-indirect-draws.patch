@@ -1,0 +1,17 @@
+The tvOS simulator reports a lower GPU family than any Apple TV, so MoltenVK turns off
+indirect drawing with a base instance, which Minecraft 26.x needs. The Mac GPU behind it has it.
+
+diff --git a/MoltenVK/MoltenVK/GPUObjects/MVKDevice.mm b/MoltenVK/MoltenVK/GPUObjects/MVKDevice.mm
+index 9772757..23dd09f 100644
+--- a/MoltenVK/MoltenVK/GPUObjects/MVKDevice.mm
++++ b/MoltenVK/MoltenVK/GPUObjects/MVKDevice.mm
+@@ -2598,6 +2598,9 @@
+ 
+ // iOS, tvOS and visionOS adjustments necessary when running on the simulator.
+ #if MVK_OS_SIMULATOR
++	// MCTV: the tvOS simulator draws with the Mac GPU, which supports these (scripts/build-moltenvk.sh).
++	_metalFeatures.indirectDrawing = true;
++	_metalFeatures.baseVertexInstanceDrawing = true;
+ 	_metalFeatures.mtlBufferAlignment = 256;	// Even on Apple Silicon
+ 	_metalFeatures.mtlConstantBufferAlignment = 256;
+ #endif

@@ -1,0 +1,84 @@
+The tvOS simulator's Metal only makes linear textures on private buffers. A texel buffer
+view of any other buffer reads a private copy, refreshed each time it's bound.
+
+diff --git a/MoltenVK/MoltenVK/GPUObjects/MVKBuffer.h b/MoltenVK/MoltenVK/GPUObjects/MVKBuffer.h
+index 9b6a735..b8ab6f1 100644
+--- a/MoltenVK/MoltenVK/GPUObjects/MVKBuffer.h
++++ b/MoltenVK/MoltenVK/GPUObjects/MVKBuffer.h
+@@ -138,5 +138,9 @@ protected:
+ 	NSUInteger _mtlBytesPerRow;
+ 	VkExtent2D _textureSize;
+ 	std::mutex _lock;
++#if MVK_OS_SIMULATOR
++	id<MTLTexture> getMTLTextureFromCopy();
++	id<MTLBuffer> _mtlCopy = nil;	// MCTV: the tvOS simulator (scripts/build-moltenvk.sh)
++#endif
+ };
+ 
+diff --git a/MoltenVK/MoltenVK/GPUObjects/MVKBuffer.mm b/MoltenVK/MoltenVK/GPUObjects/MVKBuffer.mm
+index a00c09b..c84d3b1 100644
+--- a/MoltenVK/MoltenVK/GPUObjects/MVKBuffer.mm
++++ b/MoltenVK/MoltenVK/GPUObjects/MVKBuffer.mm
+@@ -256,7 +256,48 @@
+ 
+ #pragma mark Metal
+ 
++#if MVK_OS_SIMULATOR
++// MCTV: the tvOS simulator only makes linear textures on private buffers, so a
++// view of any other buffer reads a private copy, refreshed each time it is
++// bound, through a queue of its own (scripts/build-moltenvk.sh).
++id<MTLTexture> MVKBufferView::getMTLTextureFromCopy() {
++	lock_guard<mutex> lock(_lock);
++	id<MTLBuffer> src = _buffer->getMTLBuffer();
++	NSUInteger srcOffset = _buffer->getMTLBufferOffset() + _offset;
++	NSUInteger size = _mtlBytesPerRow;
++	if (srcOffset >= src.length) { return _mtlTexture; }
++	if (srcOffset + size > src.length) { size = src.length - srcOffset; }
++	@autoreleasepool {
++		if ( !_mtlTexture ) {
++			_mtlCopy = [getMTLDevice() newBufferWithLength: _mtlBytesPerRow options: MTLResourceStorageModePrivate];
++			MTLTextureDescriptor* mtlTexDesc = [MTLTextureDescriptor textureBufferDescriptorWithPixelFormat: _mtlPixelFormat
++			                                                                                      width: _textureSize.width
++			                                                                            resourceOptions: MTLResourceStorageModePrivate
++			                                                                                      usage: MTLTextureUsageShaderRead];
++			_mtlTexture = [_mtlCopy newTextureWithDescriptor: mtlTexDesc offset: 0 bytesPerRow: _mtlBytesPerRow];
++			_device->makeResident(_mtlCopy);
++			_device->makeResident(_mtlTexture);
++			_device->getLiveResources().add(_mtlTexture);
++			propagateDebugName();
++		}
++		static id<MTLCommandQueue> copyQueue = [getMTLDevice() newCommandQueue];
++		id<MTLCommandBuffer> cb = [copyQueue commandBuffer];
++		id<MTLBlitCommandEncoder> blit = [cb blitCommandEncoder];
++		[blit copyFromBuffer: src sourceOffset: srcOffset toBuffer: _mtlCopy destinationOffset: 0 size: size];
++		[blit endEncoding];
++		[cb commit];
++		[cb waitUntilCompleted];
++	}
++	return _mtlTexture;
++}
++#endif
++
+ id<MTLTexture> MVKBufferView::getMTLTexture() {
++#if MVK_OS_SIMULATOR
++	if (_mtlPixelFormat && _buffer->getMTLBuffer() && _buffer->getMTLBuffer().storageMode != MTLStorageModePrivate) {
++		return getMTLTextureFromCopy();
++	}
++#endif
+ 	if (!_mtlTexture && _mtlPixelFormat) {
+ 
+ 		// Lock and check again in case another thread has created the texture.
+@@ -338,6 +379,13 @@
+ 
+ // Potentially called twice, from destroy() and destructor, so ensure everything is nulled out.
+ void MVKBufferView::detachMemory() {
++#if MVK_OS_SIMULATOR
++	if (id<MTLBuffer> buf = _mtlCopy) {
++		_device->removeResidency(buf);
++		[buf release];
++		_mtlCopy = nil;
++	}
++#endif
+ 	if (id<MTLTexture> tex = _mtlTexture) {
+ 		_device->getLiveResources().remove(tex);
+ 		_device->removeResidency(tex);

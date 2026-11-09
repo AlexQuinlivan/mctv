@@ -1,0 +1,14 @@
+Without jemalloc, VMA must ask posix_memalign for at least pointer alignment. From AngelAuraMC's iOS fork of LWJGL.
+
+diff --git a/modules/lwjgl/vma/src/main/c/vk_mem_alloc.h b/modules/lwjgl/vma/src/main/c/vk_mem_alloc.h
+index f2b58bf..5b56de9 100644
+--- a/modules/lwjgl/vma/src/main/c/vk_mem_alloc.h
++++ b/modules/lwjgl/vma/src/main/c/vk_mem_alloc.h
+@@ -4382,6 +4382,7 @@ inline void* VmaMalloc(const VkAllocationCallbacks* pAllocationCallbacks, size_t
+     }
+     else
+     {
++        if (alignment < sizeof(void*)) alignment = sizeof(void*);
+         result = VMA_SYSTEM_ALIGNED_MALLOC(size, alignment);
+     }
+     VMA_ASSERT(result != VMA_NULL && "CPU memory allocation failed.");

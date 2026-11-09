@@ -1,0 +1,198 @@
+Adds mctv_mvk_stats(), the live Metal and Vulkan allocations, for the app's memory log.
+MCTV_MVK_STATS=1 also prints them from a thread of their own.
+
+diff --git a/MoltenVK/MoltenVK/GPUObjects/MVKDevice.mm b/MoltenVK/MoltenVK/GPUObjects/MVKDevice.mm
+index 23dd09f..f515017 100644
+--- a/MoltenVK/MoltenVK/GPUObjects/MVKDevice.mm
++++ b/MoltenVK/MoltenVK/GPUObjects/MVKDevice.mm
+@@ -5450,6 +5450,9 @@ static uint32_t mvkGetEntryProperty(io_registry_entry_t entry, CFStringRef prope
+ }
+ 
+ // Create the command queues
++// MCTV: live Metal allocations by kind, from the residency set (scripts/build-moltenvk.sh).
++id gMCTVResidencySet = nil;
++
+ void MVKDevice::initQueues(const VkDeviceCreateInfo* pCreateInfo) {
+ #if MVK_XCODE_16
+ 	if (_physicalDevice->_isUsingMetalArgumentBuffers && _physicalDevice->_metalFeatures.residencySets) {
+@@ -5461,6 +5464,7 @@ static uint32_t mvkGetEntryProperty(io_registry_entry_t entry, CFStringRef prope
+ 		NSError *error;
+ 		_residencySet = [_physicalDevice->getMTLDevice() newResidencySetWithDescriptor:setDescriptor
+ 																				 error:&error];
++		gMCTVResidencySet = _residencySet;	// MCTV: mctv_mvk_stats (scripts/build-moltenvk.sh)
+ 		if (error) {
+ 			reportMessage(MVK_CONFIG_LOG_LEVEL_ERROR, "Error allocating residency set: %s", error.description.UTF8String);
+ 		}
+@@ -5641,3 +5645,92 @@ uint64_t mvkGetLocationID(id<MTLDevice> mtlDevice) {
+ 
+ 	return hash;
+ }
++
++
++#pragma mark - MCTV
++
++extern "C" __attribute__((visibility("default")))
++int mctv_mvk_stats(char* out, int len) {
++#if MVK_XCODE_16
++	id<MTLResidencySet> set = gMCTVResidencySet;
++	if ( !set ) { return 0; }
++	unsigned long long tex = 0, buf = 0, heap = 0;
++	unsigned long nTex = 0, nBuf = 0, nHeap = 0;
++	@synchronized(set) {
++		for (id<MTLAllocation> a in set.allAllocations) {
++			unsigned long long size = a.allocatedSize;
++			if ([a conformsToProtocol: @protocol(MTLTexture)]) { tex += size; nTex++; }
++			else if ([a conformsToProtocol: @protocol(MTLBuffer)]) { buf += size; nBuf++; }
++			else { heap += size; nHeap++; }
++		}
++	}
++	extern std::atomic<long long> gMCTVMemBytes, gMCTVMems, gMCTVDedicated, gMCTVHeapBytes, gMCTVHeaps, gMCTVPipelines;
++	return snprintf(out, len, "Metal %lu textures %llu MB, %lu buffers %llu MB; Vulkan memory %lld allocations %lld MB (%lld dedicated), in %lld heaps %lld MB; %lld pipelines",
++					nTex, tex >> 20, nBuf, buf >> 20, gMCTVMems.load(), gMCTVMemBytes.load() >> 20, gMCTVDedicated.load(), gMCTVHeaps.load(), gMCTVHeapBytes.load() >> 20, gMCTVPipelines.load());
++#else
++	return 0;
++#endif
++}
++
++// MCTV_MVK_STATS=1: a thread that prints the stats above, the largest live
++// textures and the process footprint (and its GPU part) to stderr whenever the
++// footprint moves by 16 MB, so any host (the Mac included) shows what is alive.
++#include <mach/mach.h>
++#include <pthread.h>
++static void* mctvStatsThread(void*) {
++	unsigned long long last = 0;
++	for (;;) {
++		usleep(250000);
++		task_vm_info_data_t vm; mach_msg_type_number_t count = TASK_VM_INFO_COUNT;
++		if (task_info(mach_task_self(), TASK_VM_INFO, (task_info_t)&vm, &count) != KERN_SUCCESS) { continue; }
++		unsigned long long mb = vm.phys_footprint >> 20, gpu = count >= TASK_VM_INFO_REV6_COUNT ? vm.ledger_tag_graphics_footprint >> 20 : 0;
++		if ((mb > last ? mb - last : last - mb) < 16) { continue; }
++		last = mb;
++		char line[400]; line[0] = 0;
++		mctv_mvk_stats(line, sizeof(line));
++		char top[600]; top[0] = 0;
++#if MVK_XCODE_16
++		id<MTLResidencySet> set = gMCTVResidencySet;
++		if (set) @autoreleasepool {
++			NSMutableArray* texs = [NSMutableArray array];
++			@synchronized(set) {
++				for (id<MTLAllocation> a in set.allAllocations) { if ([a conformsToProtocol: @protocol(MTLTexture)]) [texs addObject: a]; }
++			}
++			[texs sortUsingComparator: ^NSComparisonResult(id<MTLAllocation> x, id<MTLAllocation> y) {
++				return x.allocatedSize > y.allocatedSize ? NSOrderedAscending : x.allocatedSize < y.allocatedSize ? NSOrderedDescending : NSOrderedSame; }];
++			size_t n = 0;
++			for (id<MTLTexture> t in texs) {
++				if (n >= 6) break;
++				n += snprintf(top + strlen(top), sizeof(top) - strlen(top), "%s%lux%lux%lu mips %lu fmt %lu %llu MB",
++							n ? ", " : " biggest: ", (unsigned long)t.width, (unsigned long)t.height, (unsigned long)MAX(t.depth, t.arrayLength),
++							(unsigned long)t.mipmapLevelCount, (unsigned long)t.pixelFormat, (unsigned long long)(((id<MTLAllocation>)t).allocatedSize >> 20)) > 0 ? 1 : 0;
++			}
++		}
++#endif
++		char groups[700]; groups[0] = 0;
++#if MVK_XCODE_16
++		if (set && getenv("MCTV_MVK_STATS")[0] == 0x32) @autoreleasepool {  // MCTV_MVK_STATS=2: textures grouped by label
++			NSCountedSet* names = [NSCountedSet set];
++			@synchronized(set) {
++				for (id<MTLAllocation> a in set.allAllocations) {
++					if (![a conformsToProtocol: @protocol(MTLTexture)]) continue;
++					id<MTLTexture> t = (id<MTLTexture>)a;
++					NSString* l = t.label.length ? [t.label componentsSeparatedByCharactersInSet: NSCharacterSet.decimalDigitCharacterSet][0]
++					                             : [NSString stringWithFormat: @"(%lux%lu fmt %lu)", (unsigned long)t.width, (unsigned long)t.height, (unsigned long)t.pixelFormat];
++					[names addObject: l];
++				}
++			}
++			NSArray* sorted = [names.allObjects sortedArrayUsingComparator: ^NSComparisonResult(id x, id y) {
++				NSUInteger a = [names countForObject: x], b = [names countForObject: y]; return a > b ? NSOrderedAscending : a < b ? NSOrderedDescending : NSOrderedSame; }];
++			for (NSUInteger i = 0; i < sorted.count && i < 10; i++)
++				snprintf(groups + strlen(groups), sizeof(groups) - strlen(groups), "%s%lu x %s", i ? ", " : " textures by name: ",
++						 (unsigned long)[names countForObject: sorted[i]], [sorted[i] UTF8String]);
++		}
++#endif
++		fprintf(stderr, "[mvk-stats] footprint %llu MB, GPU %llu MB; %s;%s;%s\n", mb, gpu, line, top, groups);
++	}
++	return nullptr;
++}
++__attribute__((constructor)) static void mctvStartStats() {
++	if (getenv("MCTV_MVK_STATS")) { pthread_t t; pthread_create(&t, nullptr, mctvStatsThread, nullptr); pthread_detach(t); }
++}
+diff --git a/MoltenVK/MoltenVK/GPUObjects/MVKDeviceMemory.mm b/MoltenVK/MoltenVK/GPUObjects/MVKDeviceMemory.mm
+index e6e7786..fc7d974 100644
+--- a/MoltenVK/MoltenVK/GPUObjects/MVKDeviceMemory.mm
++++ b/MoltenVK/MoltenVK/GPUObjects/MVKDeviceMemory.mm
+@@ -25,6 +25,10 @@
+ #include <cstdlib>
+ #include <stdlib.h>
+ #include <os/lock.h>
++#include <atomic>
++
++// MCTV: device memory and heap totals for mctv_mvk_stats (scripts/build-moltenvk.sh).
++std::atomic<long long> gMCTVMemBytes{0}, gMCTVMems{0}, gMCTVDedicated{0}, gMCTVHeapBytes{0}, gMCTVHeaps{0};
+ 
+ using namespace std;
+ 
+@@ -226,6 +230,7 @@
+ 	heapDesc.hazardTrackingMode = MTLHazardTrackingModeTracked;
+ 	heapDesc.size = _allocationSize;
+ 	_mtlHeap = [getMTLDevice() newHeapWithDescriptor: heapDesc];	// retained
++	if (_mtlHeap) { gMCTVHeapBytes += heapDesc.size; gMCTVHeaps++; }
+ 	[heapDesc release];
+ 	if (!_mtlHeap) { return false; }
+ 
+@@ -312,6 +317,7 @@
+ 	_mtlCPUCacheMode = mvkMTLCPUCacheModeFromVkMemoryPropertyFlags(_vkMemPropFlags);
+ 
+ 	_allocationSize = pAllocateInfo->allocationSize;
++	gMCTVMemBytes += _allocationSize; gMCTVMems++;
+ 
+ 	bool willExportMTLBuffer = false;
+ 	bool wantsHeap = true;
+@@ -324,6 +330,7 @@
+ 				dedicatedImage = reinterpret_cast<MVKImage*>(pDedicatedInfo->image);
+ 				dedicatedBuffer = pDedicatedInfo->buffer;
+ 				_isDedicated = dedicatedImage || dedicatedBuffer;
++				if (_isDedicated) { gMCTVDedicated++; }
+ 				break;
+ 			}
+ 			case VK_STRUCTURE_TYPE_IMPORT_MEMORY_HOST_POINTER_INFO_EXT: {
+@@ -518,6 +525,9 @@
+ 		[buf release];
+ 	}
+ 
++	if (_mtlHeap) { gMCTVHeapBytes -= _mtlHeap.size; gMCTVHeaps--; }
++	gMCTVMemBytes -= _allocationSize; gMCTVMems--;
++	if (_isDedicated) { gMCTVDedicated--; }
+ 	[_mtlHeap release];
+ 	_mtlHeap = nil;
+ 
+diff --git a/MoltenVK/MoltenVK/GPUObjects/MVKPipeline.mm b/MoltenVK/MoltenVK/GPUObjects/MVKPipeline.mm
+index 7eae64c..f1c1021 100644
+--- a/MoltenVK/MoltenVK/GPUObjects/MVKPipeline.mm
++++ b/MoltenVK/MoltenVK/GPUObjects/MVKPipeline.mm
+@@ -37,6 +37,10 @@
+ #include <cereal/types/map.hpp>
+ #include <cereal/types/string.hpp>
+ #include <cereal/types/vector.hpp>
++#include <atomic>
++
++// MCTV: live graphics pipelines for mctv_mvk_stats (scripts/build-moltenvk.sh).
++std::atomic<long long> gMCTVPipelines{0};
+ #endif
+ 
+ using namespace std;
+@@ -706,6 +710,7 @@ static bool usesConstantColor(MVKRenderStateFlags dynamic, const VkPipelineColor
+ 										 const VkGraphicsPipelineCreateInfo* pCreateInfo) :
+ 	MVKPipeline(device, pipelineCache, (MVKPipelineLayout*)pCreateInfo->layout, getPipelineCreateFlags(pCreateInfo), parent)
+ {
++	gMCTVPipelines++;
+ 	// Extract dynamic state first, as it can affect many configurations.
+ 	initDynamicState(pCreateInfo);
+ 
+@@ -2392,6 +2397,7 @@ static void setEmulatedReversedDepthViewportConfig(SPIRVToMSLConversionConfigura
+ }
+ 
+ MVKGraphicsPipeline::~MVKGraphicsPipeline() {
++	gMCTVPipelines--;
+ 	@synchronized (getMTLDevice()) {
+ 		[_mtlTessVertexStageState release];
+ 		[_mtlTessVertexStageIndex16State release];

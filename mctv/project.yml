@@ -1,0 +1,109 @@
+# xcodegen spec for the tvOS host app. The scripts in ../scripts generate and build it.
+name: MCTV
+options:
+  deploymentTarget:
+    tvOS: "26.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    CLANG_ENABLE_OBJC_ARC: YES
+    ARCHS: arm64
+    ONLY_ACTIVE_ARCH: NO
+    CODE_SIGN_STYLE: Automatic
+    # Set on the xcodebuild command line from config/signing.env for device builds.
+    DEVELOPMENT_TEAM: ""
+    ENABLE_USER_SCRIPT_SANDBOXING: NO
+    ENABLE_DEBUG_DYLIB: NO
+    # The jitd server's address and token (server/jitd). Device builds set them
+    # from config/jit.env.
+    MCTV_JIT_SERVER: ""
+    MCTV_JIT_TOKEN: ""
+    # The app's bundle ID. The Top Shelf extension appends ".topshelf". Device
+    # builds set it from config/signing.env.
+    MCTV_BUNDLE_ID: com.example.mctv.app
+    MCTV_DISPLAY_NAME: MCTV
+    # Where embed-runtime.sh finds natives (<dir>/<platform>) and jars
+    # (<dir>/libs). Minecraft 26.x builds point these at their own folders
+    # (mc_track in scripts/lib.sh).
+    MCTV_NATIVES_DIR: $(PROJECT_DIR)/../build/natives
+    MCTV_JAVA_DIR: $(PROJECT_DIR)/../build/java
+targets:
+  MCTV:
+    type: application
+    platform: tvOS
+    sources:
+      - path: Sources
+      - path: ../shared
+      - path: Resources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(MCTV_BUNDLE_ID)
+        PRODUCT_NAME: MCTV
+        # Icon and Top Shelf images, drawn by scripts/make-art.py.
+        ASSETCATALOG_COMPILER_APPICON_NAME: "App Icon & Top Shelf Image"
+        CODE_SIGN_ENTITLEMENTS: Entitlements/MCTV.entitlements
+        TARGETED_DEVICE_FAMILY: "3"
+        # DeviceHasTXM() (libjvm) and the bridge's JNI/pojav* functions (lwjgl.jar)
+        # are found with dlsym, so nothing may be stripped.
+        DEAD_CODE_STRIPPING: NO
+        HEADER_SEARCH_PATHS: "$(PROJECT_DIR)/Sources/bridge/include"
+    dependencies:
+      - target: MCTVTopShelf
+      - sdk: Security.framework
+      - sdk: QuartzCore.framework
+      - sdk: Metal.framework
+      - sdk: GameController.framework
+      - sdk: CoreHaptics.framework
+    postCompileScripts:
+      - name: Embed Java runtime, natives and jars
+        script: bash "$PROJECT_DIR/embed-runtime.sh"
+        basedOnDependencyAnalysis: false
+    info:
+      path: Generated/Info.plist
+      properties:
+        CFBundleDisplayName: $(MCTV_DISPLAY_NAME)
+        UIRequiredDeviceCapabilities: [arm64]
+        UIUserInterfaceStyle: Dark
+        CFBundleURLTypes:
+          - CFBundleURLName: $(MCTV_BUNDLE_ID)
+            CFBundleURLSchemes: [mctv]
+        # The 2021+ Siri Remote's ring and centre (GCDirectionalGamepad) need these.
+        GCSupportsMultipleMicroGamepads: true
+        GCSupportedGameControllers:
+          - ProfileName: ExtendedGamepad
+          - ProfileName: MicroGamepad
+          - ProfileName: DirectionalGamepad
+        MCTVJITServer: $(MCTV_JIT_SERVER)
+        MCTVJITToken: $(MCTV_JIT_TOKEN)
+        NSLocalNetworkUsageDescription: MCTV asks your JIT server for JIT, and plays on Minecraft servers on your network.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+          NSExceptionDomains:
+            ${MCTV_JIT_DOMAIN}:
+              NSExceptionAllowsInsecureHTTPLoads: true
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+          UISceneConfigurations:
+            UIWindowSceneSessionRoleApplication:
+              - UISceneConfigurationName: Default
+                UISceneDelegateClassName: MCSceneDelegate
+  # Full-screen Top Shelf art (TopShelf/MCTopShelf.m).
+  MCTVTopShelf:
+    type: app-extension
+    platform: tvOS
+    sources:
+      - path: TopShelf
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(MCTV_BUNDLE_ID).topshelf
+        PRODUCT_NAME: MCTVTopShelf
+        TARGETED_DEVICE_FAMILY: "3"
+    dependencies:
+      - sdk: TVServices.framework
+    info:
+      path: Generated/TopShelf-Info.plist
+      properties:
+        CFBundleDisplayName: $(MCTV_DISPLAY_NAME)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.tv-top-shelf
+          NSExtensionPrincipalClass: MCTopShelf

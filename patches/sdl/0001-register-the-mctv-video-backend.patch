@@ -1,0 +1,28 @@
+Registers MCTV's video backend (mctv/sdl) ahead of UIKit's on tvOS.
+
+diff --git a/src/video/SDL_sysvideo.h b/src/video/SDL_sysvideo.h
+index 1fdc5bf..50d267a 100644
+--- a/src/video/SDL_sysvideo.h
++++ b/src/video/SDL_sysvideo.h
+@@ -527,6 +527,7 @@ extern VideoBootStrap COCOA_bootstrap;
+ extern VideoBootStrap X11_bootstrap;
+ extern VideoBootStrap WINDOWS_bootstrap;
+ extern VideoBootStrap HAIKU_bootstrap;
++extern VideoBootStrap MCTV_bootstrap;
+ extern VideoBootStrap UIKIT_bootstrap;
+ extern VideoBootStrap Android_bootstrap;
+ extern VideoBootStrap PS2_bootstrap;
+diff --git a/src/video/SDL_video.c b/src/video/SDL_video.c
+index ce942bf..11ecc23 100644
+--- a/src/video/SDL_video.c
++++ b/src/video/SDL_video.c
+@@ -110,6 +110,9 @@ static VideoBootStrap *bootstrap[] = {
+ #ifdef SDL_VIDEO_DRIVER_HAIKU
+     &HAIKU_bootstrap,
+ #endif
++#if defined(SDL_VIDEO_DRIVER_UIKIT) && defined(SDL_PLATFORM_TVOS)
++    &MCTV_bootstrap,
++#endif
+ #ifdef SDL_VIDEO_DRIVER_UIKIT
+     &UIKIT_bootstrap,
+ #endif
