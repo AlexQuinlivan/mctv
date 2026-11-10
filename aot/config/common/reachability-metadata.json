@@ -1,0 +1,78 @@
+{
+  "reflection": [
+    {
+      "allDeclaredFields": true,
+      "type": "org.apache.logging.log4j.core.lookup.Interpolator"
+    },
+    {
+      "methods": [
+        {
+          "name": "getConfiguration",
+          "parameterTypes": []
+        },
+        {
+          "name": "addPropertyChangeListener",
+          "parameterTypes": [
+            "java.beans.PropertyChangeListener"
+          ]
+        }
+      ],
+      "type": "org.apache.logging.log4j.core.LoggerContext"
+    },
+    {
+      "methods": [
+        {
+          "name": "getStrSubstitutor",
+          "parameterTypes": []
+        }
+      ],
+      "type": "org.apache.logging.log4j.core.config.AbstractConfiguration"
+    },
+    {
+      "methods": [
+        {
+          "name": "getVariableResolver",
+          "parameterTypes": []
+        }
+      ],
+      "type": "org.apache.logging.log4j.core.lookup.StrSubstitutor"
+    },
+    {
+      "methods": [
+        {
+          "name": "openSocketChannel",
+          "parameterTypes": [
+            "java.net.ProtocolFamily"
+          ]
+        }
+      ],
+      "type": "java.nio.channels.spi.SelectorProvider"
+    }
+  ],
+  "resources": [
+    {
+      "bundle": "net.fabricmc.loader.Messages"
+    },
+    {
+      "glob": "assets/**"
+    },
+    {
+      "glob": "data/**"
+    },
+    {
+      "glob": "flightrecorder-config.jfc"
+    },
+    {
+      "glob": "macos/arm64/org/lwjgl/**"
+    },
+    {
+      "glob": "pack.mcmeta"
+    },
+    {
+      "glob": "pack.png"
+    },
+    {
+      "glob": "version.json"
+    }
+  ]
+}

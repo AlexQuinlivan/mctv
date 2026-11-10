@@ -16,16 +16,16 @@ import java.nio.charset.StandardCharsets;
 import java.security.ProtectionDomain;
 
 /**
- * Patches Minecraft 26.x classes as they load, for tvOS 27. Every class
- * load goes through the transformer, so this works for vanilla and Fabric
- * alike. Uses java.lang.classfile (Java 24 and later).
+ * Patches Minecraft's classes for tvOS 27 as they load, when aot/aot.py bakes
+ * the game. Every class load goes through the transformer, so this works for
+ * vanilla and Fabric alike. Uses java.lang.classfile (Java 24 and later).
  *
  * MacosUtil. The JVM reports macOS, so Minecraft runs its macOS code, and
  * MacosUtil reaches AppKit through JNA, which can't load on tvOS. Its methods
  * (the Close menu item, the full-screen menu, Ctrl-click) mean nothing on a
  * TV, so they return straight away.
  *
- * TextureAtlas and AnimatedTexture. 26.x makes a GPU texture for every sprite
+ * TextureAtlas and AnimatedTexture. Minecraft makes a GPU texture for every sprite
  * and every animation frame, thousands at once, and tvOS charges heavily for
  * each texture object. Atlases are built and animations drawn on the CPU
  * instead (AtlasUpload, AnimationUpload), with Minecraft's code as the fallback.
@@ -39,12 +39,12 @@ import java.security.ProtectionDomain;
  * RenderSystem.isFrozenAtPollEvents. Minecraft holds back keepalive replies
  * once its event pump has been blocked for 200 ms, and the server drops it
  * within 30 s. On the TV the pump only blocks while the app is in the
- * background (sdl_bridge.m), where the connection should stay up for as long
+ * background (SDLHost.m), where the connection should stay up for as long
  * as tvOS lets the app run. So this always answers false.
  *
- * Linker.upcallStub. The JDK's upcall stubs crash Amethyst's JVM, so calls
- * to it outside the JDK go to FfiUpcalls, which makes them with libffi
- * through LWJGL. Controlify's SDL event filter needs one.
+ * Linker.upcallStub. Calls to it outside the JDK go to FfiUpcalls, which
+ * makes them with libffi through LWJGL, as LWJGL's own callbacks are made.
+ * Controlify's SDL event filter needs one.
  */
 public final class Agent {
     private static final String MACOS_UTIL = "com/mojang/blaze3d/platform/MacosUtil";

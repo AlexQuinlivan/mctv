@@ -20,11 +20,9 @@ import org.lwjgl.system.libffi.LibFFI;
 
 /**
  * Linker.upcallStub, made with LWJGL's libffi closures instead of the JDK's
- * upcall stubs. Amethyst's JDK crashes making an upcall stub, because
- * UpcallStub::create writes into the code cache, which on tvOS 27 is
- * only writable through its mirror. Agent sends calls to Linker.upcallStub
- * from any class outside the JDK here instead. Controlify's SDL event filter
- * is the one that matters.
+ * upcall stubs, so every native callback in the game is made the one way.
+ * Agent sends calls to Linker.upcallStub from any class outside the JDK here.
+ * Controlify's SDL event filter is the one that matters.
  *
  * Arguments and returns are primitives and pointers. Structs by value aren't
  * supported (SDL's callbacks don't use them). An exception in the target is

@@ -88,11 +88,13 @@ static void Fill(CGContextRef ctx, const float rgb[3], CGFloat k, CGPoint p0, CG
     MCCubesView *_cubes;
     UILabel *_text;
     NSMutableArray<NSAttributedString *> *_lines;
-    NSMutableString *_javaBuf;
+    NSMutableString *_logBuf;
     CFTimeInterval _t0;
     UIFont *_font;
     CGFloat _charWidth;
     BOOL _crashReport;
+    NSString *_modsCount;                // "67 mods" while the list after "Loading 67 mods:" comes in
+    NSMutableArray<NSString *> *_modNames;
     BOOL _hidden;
 }
 
@@ -107,7 +109,7 @@ static UIColor *RGB(int hex) {
         self.userInteractionEnabled = NO;
         _t0 = CACurrentMediaTime();
         _lines = [NSMutableArray new];
-        _javaBuf = [NSMutableString new];
+        _logBuf = [NSMutableString new];
         _font = [UIFont monospacedSystemFontOfSize:22 weight:UIFontWeightRegular];
         _charWidth = [@"M" sizeWithAttributes:@{NSFontAttributeName: _font}].width;
         _cubes = [MCCubesView new];
@@ -196,12 +198,11 @@ static UIColor *RGB(int hex) {
     [UIView animateWithDuration:0.5 animations:^{ self.alpha = 0; }];
 }
 
-#pragma mark - Java's output
+#pragma mark - the game's output
 
 // Known harmless messages. Realms and auth complaints when the login is
-// missing or old, the oshi/JNA system probe, libraries left out on purpose, and on
-// 26.x Controlify trying its desktop SDL and Fabric grumbling about its SDL
-// bindings' version strings.
+// missing or old, the oshi/JNA system probe, Controlify trying its desktop SDL,
+// and Fabric grumbling about its SDL bindings' version strings.
 static NSArray<NSString *> *Noise(void) {
     static NSArray *noise;
     if (!noise) noise = @[@"Realms", @"realms", @"player/attributes", @"user properties", @"SignedJWT",
@@ -210,116 +211,87 @@ static NSArray<NSString *> *Noise(void) {
     return noise;
 }
 
-static NSString *Between(NSString *s, NSString *a, NSString *b) {
-    NSRange r1 = [s rangeOfString:a];
-    if (r1.location == NSNotFound) return nil;
-    NSUInteger from = NSMaxRange(r1);
-    NSRange r2 = [s rangeOfString:b options:0 range:NSMakeRange(from, s.length - from)];
-    return r2.location == NSNotFound ? nil : [s substringWithRange:NSMakeRange(from, r2.location - from)];
+// Minecraft's "[12:00:00] [Render thread/INFO]: text" and Fabric's
+// "[12:00:00] [INFO] [FabricLoader/GameProvider]: text".
+static BOOL ParseLine(NSString *line, NSString **level, NSString **text) {
+    static NSRegularExpression *re;
+    if (!re) re = [NSRegularExpression regularExpressionWithPattern:@"^\\[\\d\\d:\\d\\d:\\d\\d\\] \\[(?:[^\\]]*/)?([A-Z]+)\\](?: \\[[^\\]]*\\])?: (.*)$"
+                                                             options:0 error:nil];
+    NSTextCheckingResult *m = [re firstMatchInString:line options:0 range:NSMakeRange(0, line.length)];
+    if (!m) return NO;
+    *level = [line substringWithRange:[m rangeAtIndex:1]];
+    *text = [line substringWithRange:[m rangeAtIndex:2]];
+    return YES;
 }
 
-static NSString *FirstLine(NSString *s) {
-    return [[s componentsSeparatedByString:@"\n"].firstObject
-        stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+- (void)consumeGameLog:(NSString *)chunk {
+    [_logBuf appendString:chunk];
+    NSRange nl = [_logBuf rangeOfString:@"\n" options:NSBackwardsSearch];
+    if (nl.location == NSNotFound) return;  // the rest of the line hasn't been written yet
+    NSUInteger end = NSMaxRange(nl);
+    for (NSString *line in [[_logBuf substringToIndex:end] componentsSeparatedByString:@"\n"]) [self logLine:line];
+    [_logBuf deleteCharactersInRange:NSMakeRange(0, end)];
 }
 
-- (void)consumeJavaLog:(NSString *)chunk {
-    [_javaBuf appendString:chunk];
-    while (YES) {
-        NSRange ev = [_javaBuf rangeOfString:@"<log4j:Event"];
-        // Plain lines before the next event (or every complete line if there is none).
-        NSUInteger rawEnd = ev.location;
-        if (rawEnd == NSNotFound) {
-            NSRange nl = [_javaBuf rangeOfString:@"\n" options:NSBackwardsSearch];
-            rawEnd = nl.location == NSNotFound ? 0 : NSMaxRange(nl);
+- (void)logLine:(NSString *)raw {
+    if (_modsCount) {
+        if ([raw hasPrefix:@"\t"]) {  // "\t- fabric-api 0.165.2", and its nested jars indented further
+            NSString *name = [raw hasPrefix:@"\t- "] ? [[raw substringFromIndex:3] componentsSeparatedByString:@" "].firstObject : nil;
+            if (name && ![@[@"java", @"minecraft", @"fabricloader"] containsObject:name]) [_modNames addObject:name];
+            return;
         }
-        if (rawEnd > 0) {
-            for (NSString *line in [[_javaBuf substringToIndex:rawEnd] componentsSeparatedByString:@"\n"])
-                [self rawLine:line];
-            [_javaBuf deleteCharactersInRange:NSMakeRange(0, rawEnd)];
-            continue;
-        }
-        if (ev.location == NSNotFound) break;
-        NSRange end = [_javaBuf rangeOfString:@"</log4j:Event>"];
-        if (end.location == NSNotFound) break;  // the rest hasn't been written yet
-        NSUInteger len = NSMaxRange(end);
-        [self event:[_javaBuf substringToIndex:len]];
-        [_javaBuf deleteCharactersInRange:NSMakeRange(0, len)];
+        [self addLine:[NSString stringWithFormat:@"Loaded %@ (%@)", _modsCount, [_modNames componentsJoinedByString:@", "]]
+                 kind:MCLogOK];
+        _modsCount = nil;
     }
-}
-
-- (void)rawLine:(NSString *)raw {
     NSString *line = [raw stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
     if (!line.length || [raw containsString:@" [mctv] "]) return;  // our own lines, already shown
-    for (NSString *p in @[@"at ", @"Caused by", @"...", @"Ignored non-exists file", @"[MobileGlues] Setting:",
-                          @"Platform.isMac", @"PatchJNAAgent", @"The Open Source License", @"GNU LGPL", @"]]>",
-                          @"WARNING: sun.misc.Unsafe", @"WARNING: Please consider reporting",
-                          @"OpenJDK 64-Bit Server VM warning: Option UseCompressedClassPointers"])
-        if ([line hasPrefix:p]) return;
+    for (NSString *p in @[@"at ", @"Caused by", @"...", @"[mvk-info]", @"[mvk-warn]"])
+        if ([line hasPrefix:p]) return;  // stack traces stay in java.log, and so do MoltenVK's notes on what Metal lacks
     // Controlify's copy of SDL defines the same Objective-C classes as the app's.
     // Each copy uses its own, so the runtime's duplicate class warnings are noise.
     if ([line containsString:@"is implemented in both"]) return;
-    // MoltenVK warns once per pipeline about what Metal lacks (java.log keeps them).
-    if ([line hasPrefix:@"[mvk-info]"] || [line hasPrefix:@"[mvk-warn]"]) return;
     if ([line containsString:@"CoreBluetooth BLE hardware is unsupported"]) return;  // SDL's HIDAPI, tvOS has no BLE for it
-    if ([line containsString:@"A fatal error has been detected"]) {
-        [self addLine:@"Java crashed. The details are in java.log" kind:MCLogFail];
-    } else if ([line containsString:@"---- Minecraft Crash Report ----"]) {
-        _crashReport = YES;
-    } else if (_crashReport && [line hasPrefix:@"Description: "]) {
-        _crashReport = NO;
-        [self addLine:[@"Minecraft crashed: " stringByAppendingString:[line substringFromIndex:13]] kind:MCLogFail];
-    } else if ([line hasPrefix:@"[JIT26] Got JIT mapping"]) {
-        [self addLine:@"JIT code cache ready" kind:MCLogOK];
-    } else if ([line hasPrefix:@"[JIT26] "]) {
-        [self addLine:[line substringFromIndex:8] kind:[line hasPrefix:@"[JIT26] mapping"] ? MCLogDim : MCLogPlain];
-    } else if ([line hasPrefix:@"Launching Minecraft "] || [line hasPrefix:@"OpenGL ES Version:"]) {
-        [self addLine:line kind:MCLogPlain];
-    } else if (!_crashReport) {
-        [self addLine:line kind:MCLogDim];
+    if ([line hasPrefix:@"Fatal error"]) {
+        [self addLine:@"The game crashed. The details are in java.log" kind:MCLogFail];
+        return;
     }
-}
-
-- (void)event:(NSString *)ev {
-    NSString *level = Between(ev, @"level=\"", @"\"") ?: @"INFO";
-    NSString *logger = Between(ev, @"logger=\"", @"\"") ?: @"";
-    NSString *msg = Between(ev, @"<log4j:Message><![CDATA[", @"]]></log4j:Message>") ?: @"";
-    NSString *thr = Between(ev, @"<log4j:Throwable><![CDATA[", @"]]></log4j:Throwable>");
-    NSString *all = thr ? [msg stringByAppendingString:thr] : msg;
-    for (NSString *n in Noise())
-        if ([all containsString:n]) return;
-    NSString *first = FirstLine(msg);
-
-    if ([first hasPrefix:@"Loading "] && [first hasSuffix:@" mods:"]) {
-        NSMutableArray *names = [NSMutableArray new];
-        for (NSString *l in [msg componentsSeparatedByString:@"\n"]) {
-            if (![l hasPrefix:@"\t- "]) continue;
-            NSString *name = [[l substringFromIndex:3] componentsSeparatedByString:@" "].firstObject;
-            if (![@[@"java", @"minecraft", @"fabricloader"] containsObject:name]) [names addObject:name];
+    if ([line containsString:@"---- Minecraft Crash Report ----"]) {
+        _crashReport = YES;
+        return;
+    }
+    if (_crashReport) {
+        if ([line hasPrefix:@"Description: "]) {
+            _crashReport = NO;
+            [self addLine:[@"Minecraft crashed: " stringByAppendingString:[line substringFromIndex:13]] kind:MCLogFail];
         }
-        NSString *count = [first substringWithRange:NSMakeRange(8, first.length - 8 - 1)];
-        [self addLine:[NSString stringWithFormat:@"Loaded %@ (%@)", count, [names componentsJoinedByString:@", "]]
-                 kind:MCLogOK];
+        return;
+    }
+    for (NSString *n in Noise())
+        if ([line containsString:n]) return;
+    NSString *level, *text;
+    if (!ParseLine(line, &level, &text)) {
+        [self addLine:line kind:MCLogDim];
+        return;
+    }
+    if ([text hasPrefix:@"Loading "] && [text hasSuffix:@" mods:"]) {
+        _modsCount = [text substringWithRange:NSMakeRange(8, text.length - 8 - 1)];
+        _modNames = [NSMutableArray new];
         return;
     }
     NSDictionary<NSString *, NSString *> *milestones = @{
         @"Loading Minecraft ": @"", @"Backend library: ": @"", @"Sound engine started": @"",
-        @"Connecting to ": @"", @"Setting user: ": @"Player ",
-        @"Using graphics device: ": @"GPU: ",  // 26.x
+        @"Connecting to ": @"", @"Setting user: ": @"Player ", @"Using graphics device: ": @"GPU: ",
     };
     for (NSString *prefix in milestones) {
-        if ([first hasPrefix:prefix]) {
-            NSString *text = milestones[prefix].length ? [milestones[prefix] stringByAppendingString:[first substringFromIndex:prefix.length]] : first;
-            [self addLine:text kind:MCLogOK];
+        if ([text hasPrefix:prefix]) {
+            [self addLine:milestones[prefix].length ? [milestones[prefix] stringByAppendingString:[text substringFromIndex:prefix.length]] : text
+                     kind:MCLogOK];
             return;
         }
     }
-    NSString *who = [logger hasPrefix:@"net.minecraft"] ? @"minecraft"
-        : [[logger componentsSeparatedByCharactersInSet:[NSCharacterSet characterSetWithCharactersInString:@"./"]] lastObject];
-    NSString *text = who.length ? [NSString stringWithFormat:@"%@: %@", who, first] : first;
-    if (thr && ![level isEqualToString:@"INFO"]) text = [NSString stringWithFormat:@"%@ (%@)", text, FirstLine(thr)];
-    MCLogKind kind = [level isEqualToString:@"ERROR"] || [level isEqualToString:@"FATAL"] ? MCLogWarn
-                   : [level isEqualToString:@"WARN"] ? MCLogDim : MCLogPlain;
-    [self addLine:text kind:kind];
+    // The milestones above stand out. Problems are flagged, and the rest is dim.
+    BOOL bad = [level isEqualToString:@"ERROR"] || [level isEqualToString:@"FATAL"];
+    [self addLine:text kind:bad ? MCLogWarn : MCLogDim];
 }
 @end

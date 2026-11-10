@@ -1,8 +1,8 @@
 #import "MCAccount.h"
 #import <Security/Security.h>
-#import "JVM.h"
+#import "Game.h"
 
-// The Minecraft launcher's client ID and scope, as Amethyst uses them.
+// The Minecraft launcher's client ID and scope.
 static NSString *const kClientID = @"00000000402b5328";
 static NSString *const kScope = @"service::user.auth.xboxlive.com::MBI_SSL";
 // Minecraft's access token lasts a day. Refresh when less than this is left.
@@ -52,16 +52,16 @@ static NSDictionary *Request(NSString *url, id _Nullable body, BOOL form, NSDict
     return [json isKindOfClass:NSDictionary.class] ? json : @{};
 }
 
-#pragma mark - Keychain (as Amethyst's MicrosoftAuthenticator)
+#pragma mark - Keychain
 
 static NSMutableDictionary *KeychainQuery(NSString *xuid) {
     return [@{(id)kSecClass: (id)kSecClassGenericPassword, (id)kSecAttrService: @"AccountToken",
               (id)kSecAttrAccount: xuid} mutableCopy];
 }
 
-// scripts/mc-sim.sh builds the simulator app unsigned, and an unsigned app
-// can't use the Keychain (errSecMissingEntitlement). The simulator keeps the
-// tokens in a file beside the account instead. Signed builds never do.
+// The simulator app is built unsigned, and an unsigned app can't use the
+// Keychain (errSecMissingEntitlement). The simulator keeps the tokens in a file
+// beside the account instead. Signed builds never do.
 static NSString *TokenFile(NSString *xuid) {
     return [[HomeDir() stringByAppendingPathComponent:@"accounts"] stringByAppendingPathComponent:[xuid stringByAppendingPathExtension:@"tokens"]];
 }
@@ -99,10 +99,6 @@ static NSDictionary *LoadTokens(NSString *xuid) {
     return [NSKeyedUnarchiver unarchivedObjectOfClasses:[NSSet setWithObjects:NSDictionary.class, NSString.class, nil]
                                                fromData:data error:nil];
 }
-
-@implementation MicrosoftAuthenticator
-+ (NSDictionary *)tokenDataOfProfile:(NSString *)xuid { return LoadTokens(xuid); }
-@end
 
 #pragma mark - The token chain
 
@@ -142,10 +138,8 @@ static NSString *FinishSignIn(NSString *msaAccess, NSString *msaRefresh, NSStrin
     NSString *dashed = [NSString stringWithFormat:@"%@-%@-%@-%@-%@", [uuid substringWithRange:NSMakeRange(0, 8)],
         [uuid substringWithRange:NSMakeRange(8, 4)], [uuid substringWithRange:NSMakeRange(12, 4)],
         [uuid substringWithRange:NSMakeRange(16, 4)], [uuid substringWithRange:NSMakeRange(20, 12)]];
-    // Amethyst's account file. The launcher reads the token from the Keychain
-    // because "xuid" is set, so accessToken here is only a placeholder.
-    NSDictionary *account = @{@"username": name, @"profileId": dashed, @"xuid": uhs, @"clientToken": @"0",
-                              @"accessToken": @"0", @"expiresAt": @((long)NSDate.date.timeIntervalSince1970 + 86400)};
+    NSDictionary *account = @{@"username": name, @"profileId": dashed, @"xuid": uhs,
+                              @"expiresAt": @((long)NSDate.date.timeIntervalSince1970 + 86400)};
     NSString *path = AccountFile(name);
     [NSFileManager.defaultManager createDirectoryAtPath:path.stringByDeletingLastPathComponent
                             withIntermediateDirectories:YES attributes:nil error:nil];
@@ -169,6 +163,14 @@ static NSString *FinishSignIn(NSString *msaAccess, NSString *msaRefresh, NSStrin
 }
 
 + (NSString *)signedInName { return [self savedAccount][@"username"]; }
+
++ (NSDictionary<NSString *, NSString *> *)gameLogin {
+    NSDictionary *account = [self savedAccount];
+    NSString *token = LoadTokens(account[@"xuid"])[@"accessToken"];
+    if (!account || !token) return nil;
+    return @{@"username": account[@"username"], @"profileId": account[@"profileId"] ?: @"",
+             @"xuid": account[@"xuid"], @"accessToken": token};
+}
 
 + (void)signInShowing:(void (^)(NSString *, NSURL *))showCode done:(void (^)(NSString *, NSString *))done {
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{

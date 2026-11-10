@@ -6,7 +6,7 @@
 
 Each pack is enabled in options.txt, and "-name" disables one. --jar stamps new
 options with the game's data version. Without it Minecraft takes the file for a
-very old one and upgrades it, and the 26.x upgrade resets the renderer to OpenGL.
+very old one and upgrades it, and the upgrade resets the renderer to OpenGL.
 --servers-dat writes Minecraft's server list as uncompressed NBT.
 """
 import json
@@ -15,8 +15,8 @@ import struct
 import sys
 import zipfile
 
-# 26.x applies graphicsPreset at every start and treats a missing one as
-# "fancy" (16 chunks), so "custom" keeps these settings. 1.21.11 ignores it.
+# Minecraft applies graphicsPreset at every start and treats a missing one as
+# "fancy" (16 chunks), so "custom" keeps these settings.
 OPTIONS = """\
 onboardAccessibility:false
 skipMultiplayerWarning:true

@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # MoltenVK 1.4.2, the version Mojang ships on macOS, as a dylib for tvOS
-# and the simulator. Upstream only builds a static library for tvOS. Amethyst's
-# 1.2.9 has a SPIRV-Cross bug that breaks 26.3's pipelines.
+# and the simulator. Upstream only builds a static library for tvOS.
 #
 #   scripts/build-moltenvk.sh [--force]
 source "$(dirname "$0")/lib.sh"
@@ -12,7 +11,7 @@ MINOS=26.0
 W="$ROOT/deps/moltenvk"
 SRC="$W/src"
 DD="$W/DerivedData"
-DST="$BUILD/deps26/moltenvk"
+DST="$BUILD/deps/moltenvk"
 LOG="$DST/build.log"
 DEPS_STAMP="$TAG, $(xcodebuild -version | tr '\n' ' ')"
 STAMP="$DEPS_STAMP tvOS $MINOS, patches $(cat "$ROOT"/patches/moltenvk/*.patch | shasum | cut -c1-12)"
@@ -20,7 +19,7 @@ STAMP="$DEPS_STAMP tvOS $MINOS, patches $(cat "$ROOT"/patches/moltenvk/*.patch |
 [ "${1:-}" = --force ] && rm -f "$DST/.stamp" "$W/.deps-stamp"
 if [ "$(cat "$DST/.stamp" 2>/dev/null)" = "$STAMP" ] \
     && [ -f "$DST/appletvos/libMoltenVK.dylib" ] && [ -f "$DST/appletvsimulator/libMoltenVK.dylib" ]; then
-    say "MoltenVK $TAG is up to date in build/deps26/moltenvk (--force rebuilds)"
+    say "MoltenVK $TAG is up to date in build/deps/moltenvk (--force rebuilds)"
     exit 0
 fi
 
@@ -50,10 +49,10 @@ fi
 [ "$(git -C "$SRC" rev-parse HEAD)" = "$COMMIT" ] || die "deps/moltenvk/src isn't at $TAG ($COMMIT)"
 
 # The simulator reports a lower Metal GPU family than any Apple TV, so MoltenVK
-# turns off indirect drawing with a base instance, which Minecraft 26.x needs.
+# turns off indirect drawing with a base instance, which Minecraft needs.
 # The Mac GPU behind the simulator has it, so turn it back on.
 MVK="$SRC/MoltenVK/MoltenVK/GPUObjects/MVKDevice.mm"
-# Our changes are in patches/moltenvk. Two simulator fixes, and the memory stats the app logs.
+# patches/moltenvk has two simulator fixes, and the memory stats the app logs.
 apply_patches "$SRC" "$ROOT/patches/moltenvk"
 
 # SPIRV-Cross, SPIRV-Tools and friends at the revisions this tag pins.
@@ -95,4 +94,4 @@ for sdk in appletvos appletvsimulator; do
 done
 
 echo "$STAMP" > "$DST/.stamp"
-say "done in $((SECONDS / 60))m $((SECONDS % 60))s"
+say "MoltenVK ready in build/deps/moltenvk"

@@ -29,8 +29,8 @@ INFO = {"author": "xcode", "version": 1}
 KEY_ART_PAGE = "https://minecraft.wiki/w/File:MC_key_art.png"
 KEY_ART_SHA256 = "79872fa40dac1ef3f5a20963ae36a56a9791c89b80adbe24fb0c794c792926b3"
 PANORAMA = "minecraft/textures/gui/title/background/panorama_%d.png"
-# The title screen camera, from CubeMap and GuiRenderer (the same in 1.21.11
-# and 26.3). It faces panorama face 0 because the spin starts at 0.
+# The title screen camera, from CubeMap and GuiRenderer. It faces panorama
+# face 0 because the spin starts at 0.
 TITLE_VFOV = 85.0
 TITLE_PITCH = 10.0
 # Panorama faces as (normal, right, down). Face 0 is ahead (+z), faces 1 to 3
@@ -50,8 +50,8 @@ JAR_FILES = {
 
 
 def game_dir(version):
-    """The version's game folder, as mc_track in scripts/lib.sh has it."""
-    return os.path.join(ROOT, "build", "mcgame" if version.startswith("1.") else "mc26")
+    """The game folder scripts/fetch-minecraft.py fills (scripts/lib.sh ensure_art)."""
+    return os.path.join(ROOT, "build", "game")
 
 
 def sources(version):

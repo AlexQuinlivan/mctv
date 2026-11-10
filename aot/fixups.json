@@ -1,0 +1,71 @@
+{
+  "jars": {
+    "joml-*.jar": {
+      "drop": [
+        "*package-info.class"
+      ],
+      "why": "JOML's package-info classes can't be loaded (Illegal class name). The JVM never tries, native-image does."
+    },
+    "sponge-mixin-*.jar": {
+      "drop": [
+        "org/spongepowered/asm/service/mojang/*",
+        "org/spongepowered/asm/service/modlauncher/*",
+        "org/spongepowered/asm/launch/Mixin*Legacy*",
+        "org/spongepowered/tools/*",
+        "META-INF/services/*"
+      ],
+      "why": "Mixin's LaunchWrapper and ModLauncher integrations and its annotation processor, which can't run under Fabric. Their service files are all Mixin's jar declares, and Fabric Loader declares its own."
+    }
+  },
+  "initializeAtRunTime": {
+    "io.netty": "Netty's own image config initializes classes that keep a Log4j logger, which can't be in the image heap.",
+    "org.slf4j": "The same, for SLF4J's loggers."
+  },
+  "addModules": {
+    "jdk.jfr": "Minecraft's profiler commands use JFR.",
+    "jdk.zipfs": "Fabric reads mods' resources from their jars through the zip file system."
+  },
+  "preserve": {
+    "jars": {
+      "authlib-*.jar": "Gson reads Mojang's web replies into authlib's classes by reflection. A trace without a real account never sees them."
+    },
+    "packages": {
+      "com.mojang.realmsclient.dto": "Realms' replies, read by Gson.",
+      "com.mojang.realmsclient.util": "Realms' saved state, read by Gson."
+    },
+    "mods": "Every mod is kept whole, so a mod's reflection on its own classes (configs, entrypoints, Gson) works without tracing it.",
+    "modsExcept": {
+      "minecraft": "The game, which the trace covers.",
+      "java": "Not a jar.",
+      "fabricloader": "Only its runtime is used, which the trace covers. Its transformers aren't."
+    }
+  },
+  "otherPlatforms": {
+    "com.sun.jna.platform.bsd*": "JNA's BSD APIs.",
+    "com.sun.jna.platform.linux*": "JNA's Linux APIs.",
+    "com.sun.jna.platform.unix.X11*": "JNA's X11 bindings, Linux and BSD desktops.",
+    "com.sun.jna.platform.unix.aix*": "JNA's AIX APIs.",
+    "com.sun.jna.platform.unix.solaris.*": "JNA's Solaris APIs.",
+    "com.sun.jna.platform.win32*": "JNA's Windows APIs.",
+    "com.sun.jna.platform.wince*": "JNA's Windows CE APIs.",
+    "com.sun.jna.win32*": "JNA's Windows calling conventions.",
+    "oshi.*.aix*": "OSHI's AIX support.",
+    "oshi.*.freebsd*": "OSHI's FreeBSD support.",
+    "oshi.*.linux*": "OSHI's Linux support.",
+    "oshi.*.openbsd*": "OSHI's OpenBSD support.",
+    "oshi.*.solaris*": "OSHI's Solaris support.",
+    "oshi.*.windows*": "OSHI's Windows support.",
+    "oshi.jna.platform.unix.*BsdLibc*": "OSHI's FreeBSD and OpenBSD C libraries.",
+    "oshi.jna.platform.unix.AixLibc*": "OSHI's AIX C library.",
+    "oshi.jna.platform.unix.SolarisLibc*": "OSHI's Solaris C library."
+  },
+  "reflectsOnParameter": {
+    "com/mojang/renderpearl/backend/vulkan/init/VulkanPNextStruct.<init> (Ljava/lang/Class;)V": {
+      "0": [
+        "allPublicFields",
+        "allPublicMethods"
+      ],
+      "why": "VulkanPNextStruct keeps the Vulkan struct class it's given, and fieldOffset looks up its feature methods and fields by name. Which ones depends on the GPU, so every struct Minecraft passes gets them all."
+    }
+  }
+}

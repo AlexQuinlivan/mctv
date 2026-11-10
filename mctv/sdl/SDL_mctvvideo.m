@@ -1,13 +1,12 @@
 /*
- * MCTV's SDL video backend, for Minecraft 26.x on tvOS 27.
+ * MCTV's SDL video backend, for Minecraft on tvOS.
  *
  * One full-screen window on the app's game layer. SDL's own UIKit backend
  * would make its own window and view, take presses and focus from the app's
  * Siri Remote and controller handling, and call UIKit from Minecraft's
  * thread. This backend asks the app (mctv_sdl.h) for everything instead. That
- * covers the screen size, input events from MCInput, an OpenGL context from
- * the app's MobileGlues-on-ANGLE code, and the CAMetalLayer that MoltenVK
- * draws Vulkan into.
+ * covers the screen size, input events from MCInput, and the CAMetalLayer
+ * that MoltenVK draws Vulkan into. There's no OpenGL.
  *
  * scripts/build-sdl.sh copies this file into src/video/uikit/, so SDL's tvOS
  * build compiles it with the UIKit sources, and registers MCTV_bootstrap
@@ -266,105 +265,6 @@ static bool MCTV_SetRelativeMouseMode(bool enabled)
     return true;
 }
 
-// -- OpenGL (MobileGlues on ANGLE, through the app) -------------------------------------
-
-// Minecraft checks that SDL and LWJGL resolve glGetError to the same address.
-// LWJGL on "macOS" asks the GL library's own eglGetProcAddress first (or
-// OSMesaGetProcAddress), then falls back to the symbol, so this does too.
-typedef SDL_FunctionPointer (*GetProcAddressFunction)(const char *name);
-static GetProcAddressFunction libraryGetProcAddress;
-
-static bool MCTV_GL_LoadLibrary(SDL_VideoDevice *_this, const char *path)
-{
-    if (!path) {
-        path = host->gl_library();
-    }
-    if (!path) {
-        return SDL_SetError("the app has no OpenGL library");
-    }
-    _this->gl_config.dll_handle = SDL_LoadObject(path);
-    if (!_this->gl_config.dll_handle) {
-        Log("SDL: couldn't load OpenGL from %s: %s", path, SDL_GetError());
-        return false;
-    }
-    SDL_strlcpy(_this->gl_config.driver_path, path, sizeof(_this->gl_config.driver_path));
-    libraryGetProcAddress = (GetProcAddressFunction)SDL_LoadFunction(_this->gl_config.dll_handle, "eglGetProcAddress");
-    if (!libraryGetProcAddress) {
-        libraryGetProcAddress = (GetProcAddressFunction)SDL_LoadFunction(_this->gl_config.dll_handle, "OSMesaGetProcAddress");
-    }
-    SDL_ClearError();  // a missing lookup function isn't an error
-    Log("SDL: OpenGL from %s", path);
-    return true;
-}
-
-static SDL_FunctionPointer MCTV_GL_GetProcAddress(SDL_VideoDevice *_this, const char *proc)
-{
-    SDL_FunctionPointer f = NULL;
-    if (!_this->gl_config.dll_handle) {
-        return NULL;
-    }
-    if (libraryGetProcAddress) {
-        f = libraryGetProcAddress(proc);
-    }
-    return f ? f : SDL_LoadFunction(_this->gl_config.dll_handle, proc);
-}
-
-static void MCTV_GL_UnloadLibrary(SDL_VideoDevice *_this)
-{
-    if (_this->gl_config.dll_handle) {
-        SDL_UnloadObject(_this->gl_config.dll_handle);
-        _this->gl_config.dll_handle = NULL;
-    }
-    libraryGetProcAddress = NULL;
-}
-
-static SDL_GLContext MCTV_GL_CreateContext(SDL_VideoDevice *_this, SDL_Window *window)
-{
-    void *context = host->gl_create();
-    if (!context) {
-        SDL_SetError("the app couldn't make an OpenGL context");
-        return NULL;
-    }
-    if (!host->gl_make_current(context)) {
-        host->gl_destroy(context);
-        SDL_SetError("the app couldn't make its OpenGL context current");
-        return NULL;
-    }
-    return (SDL_GLContext)context;
-}
-
-static bool MCTV_GL_MakeCurrent(SDL_VideoDevice *_this, SDL_Window *window, SDL_GLContext context)
-{
-    return host->gl_make_current((void *)context) ? true : SDL_SetError("couldn't make the OpenGL context current");
-}
-
-static int swapInterval = 1;
-
-static bool MCTV_GL_SetSwapInterval(SDL_VideoDevice *_this, int interval)
-{
-    swapInterval = interval;
-    host->gl_swap_interval(interval);
-    return true;
-}
-
-static bool MCTV_GL_GetSwapInterval(SDL_VideoDevice *_this, int *interval)
-{
-    *interval = swapInterval;
-    return true;
-}
-
-static bool MCTV_GL_SwapWindow(SDL_VideoDevice *_this, SDL_Window *window)
-{
-    host->gl_swap();
-    return true;
-}
-
-static bool MCTV_GL_DestroyContext(SDL_VideoDevice *_this, SDL_GLContext context)
-{
-    host->gl_destroy((void *)context);
-    return true;
-}
-
 // -- Vulkan (MoltenVK on the app's Metal layer) -------------------------------------------
 
 #ifdef SDL_VIDEO_VULKAN
@@ -574,16 +474,6 @@ static SDL_VideoDevice *MCTV_CreateDevice(void)
     device->DestroyWindow = MCTV_DestroyWindow;
     device->StartTextInput = MCTV_StartTextInput;
     device->StopTextInput = MCTV_StopTextInput;
-
-    device->GL_LoadLibrary = MCTV_GL_LoadLibrary;
-    device->GL_GetProcAddress = MCTV_GL_GetProcAddress;
-    device->GL_UnloadLibrary = MCTV_GL_UnloadLibrary;
-    device->GL_CreateContext = MCTV_GL_CreateContext;
-    device->GL_MakeCurrent = MCTV_GL_MakeCurrent;
-    device->GL_SetSwapInterval = MCTV_GL_SetSwapInterval;
-    device->GL_GetSwapInterval = MCTV_GL_GetSwapInterval;
-    device->GL_SwapWindow = MCTV_GL_SwapWindow;
-    device->GL_DestroyContext = MCTV_GL_DestroyContext;
 
 #ifdef SDL_VIDEO_VULKAN
     device->Vulkan_LoadLibrary = MCTV_Vulkan_LoadLibrary;

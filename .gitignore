@@ -1,5 +1,4 @@
 # upstream checkouts and downloads
-/amethyst/
 /deps/
 # build output
 /build/
@@ -14,6 +13,8 @@ __pycache__/
 /config/publish-check.local
 # local notes, never published
 /private/
+# the PGO profile aot/aot.py pgo makes on each machine
+/aot/pgo/
 # made from Mojang's art by scripts/make-art.py on each machine
 /mctv/Resources/Assets.xcassets/App Icon & Top Shelf Image.brandassets/
 /mctv/TopShelf/Resources/

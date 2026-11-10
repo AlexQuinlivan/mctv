@@ -10,7 +10,7 @@ import java.util.List;
 /**
  * Builds a texture atlas on the CPU, the way Minecraft 1.21 did.
  *
- * 26.x's TextureAtlas.uploadInitialContents makes a GPU texture for every
+ * Minecraft 26's TextureAtlas.uploadInitialContents makes a GPU texture for every
  * sprite (about 4,000 for the block atlas), draws each into the atlas with
  * the animate_sprite_blit shader, then frees them all. tvOS charges about
  * 100 KB of GPU memory per texture object on top of its pixels, so the burst
