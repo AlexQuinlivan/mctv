@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Writes your team (from Xcode's accounts), the bundle ID prefix and the paired
+# Writes your team (from Xcode's accounts), the app's bundle ID and the paired
 # Apple TV to config/signing.env. Add your account in Xcode > Settings >
 # Accounts first.
 #
 #   scripts/set-team.sh                          the only paid team Xcode knows
 #   scripts/set-team.sh you@example.com          that Apple ID's team
 #   scripts/set-team.sh --team ABCDE12345        this team
-#   scripts/set-team.sh --prefix com.you.mctv    bundle IDs become com.you.mctv.app and so on
+#   scripts/set-team.sh --prefix com.you.mctv    the app's bundle ID (its Top Shelf extension adds .topshelf)
 source "$(dirname "$0")/lib.sh"
 
 APPLE_ID=
@@ -41,8 +41,8 @@ fi
 for t in ${REFUSE_TEAMS:-}; do
     [ "$TEAM" != "$t" ] || die "config/signing.env refuses team $t"
 done
-[[ "$PREFIX" =~ ^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$ ]] || die "bundle prefix '$PREFIX' should look like com.yourname.mctv"
-[ "$PREFIX" != com.example.mctv ] || say "bundle prefix is still com.example.mctv. Pass --prefix with a name of your own"
+[[ "$PREFIX" =~ ^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$ ]] || die "bundle ID '$PREFIX' should look like com.yourname.mctv"
+[ "$PREFIX" != com.example.mctv ] || say "bundle ID is still com.example.mctv. Pass --prefix with a name of your own"
 
 dev=$(find_tv 2>/dev/null || true)
 (umask 077; cat > "$ROOT/config/signing.env" <<EOF
@@ -52,4 +52,4 @@ DEVICE=$dev
 REFUSE_TEAMS="${REFUSE_TEAMS:-}"
 EOF
 )
-say "config/signing.env: team $TEAM, bundle prefix $PREFIX, Apple TV ${dev:-auto-detected at each run}"
+say "config/signing.env: team $TEAM, bundle ID $PREFIX, Apple TV ${dev:-auto-detected at each run}"

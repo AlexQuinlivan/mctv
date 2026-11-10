@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The third-party natives LWJGL 3.4.3 loads for Minecraft 26.x, built for
+# The third-party natives LWJGL 3.4.3 loads for Minecraft, built for
 # tvOS and its simulator from LWJGL-CI's forks with their CI flags. LWJGL
 # resolves every function of a binding class when it loads, so each library
 # carries LWJGL's whole C API.
@@ -7,7 +7,7 @@
 #   libshaderc.dylib      shaderc with glslang and SPIRV-Tools
 #   libspirv-cross.dylib  SPIRV-Cross's C API
 # libshaderc exports only C functions, so dyld can't mix its glslang and
-# SPIRV-Tools with the older copies MobileGlues exports.
+# SPIRV-Tools with another library's copies.
 #
 #   scripts/build-lwjgl-thirdparty.sh [--force]
 source "$(dirname "$0")/lib.sh"
@@ -25,7 +25,7 @@ SHADERC_PARAMS="-DSHADERC_SKIP_INSTALL=ON -DSHADERC_SKIP_TESTS=ON"
 SPVC_PARAMS="-DSPIRV_CROSS_STATIC=OFF -DSPIRV_CROSS_SHARED=ON -DSPIRV_CROSS_CLI=OFF -DSPIRV_CROSS_ENABLE_TESTS=OFF -DSPIRV_CROSS_SKIP_INSTALL=ON -DSPIRV_CROSS_WERROR=ON -DSPIRV_CROSS_FORCE_PIC=ON"
 
 SRC="$ROOT/deps/thirdparty"
-DST="$BUILD/deps26/thirdparty"
+DST="$BUILD/deps/thirdparty"
 OBJ="$DST/obj"
 VENV="$BUILD/meson-venv"
 LIBS="libfreetype.dylib libshaderc.dylib libspirv-cross.dylib"
@@ -40,10 +40,9 @@ up_to_date() {
 }
 [ "${1:-}" = --force ] && rm -f "$DST"/*/.stamp
 if up_to_date; then
-    say "up to date in build/deps26/thirdparty (--force rebuilds)"
+    say "up to date in build/deps/thirdparty (--force rebuilds)"
     exit 0
 fi
-START=$SECONDS
 unset SDKROOT MACOSX_DEPLOYMENT_TARGET TVOS_DEPLOYMENT_TARGET CFLAGS CXXFLAGS LDFLAGS
 mkdir -p "$SRC" "$OBJ"
 
@@ -170,7 +169,7 @@ EOF
     cmake --build "$bdir" --target glslang glslang-default-resource-limits SPIRV-Tools-static SPIRV-Tools-opt \
         >>"$log" 2>&1 || die "shaderc build failed, see $log"
     # Export C functions by name. A pattern like _spv* would also catch
-    # spvTargetEnvNameMap, a weak C++ table MobileGlues exports too.
+    # spvTargetEnvNameMap, a weak C++ table other libraries export too.
     { echo '_shaderc_*'
       nm -m "$bdir"/third_party/glslang/glslang/libglslang{,-default-resource-limits}.a \
           "$bdir"/third_party/spirv-tools/source/libSPIRV-Tools.a "$bdir"/third_party/spirv-tools/source/opt/libSPIRV-Tools-opt.a \
@@ -191,8 +190,8 @@ done
 
 # Checks the platform, the dependencies and that every function LWJGL resolves
 # is exported.
-JAVAP=$(/usr/libexec/java_home 2>/dev/null)/bin/javap
-JARS="$BUILD/java-26/lwjgl"
+JAVAP="$ROOT/deps/graalvm/Contents/Home/bin/javap"
+JARS="$BUILD/game/libraries/org/lwjgl"   # Mojang's LWJGL jars (scripts/fetch-minecraft.py)
 for sdk in appletvos appletvsimulator; do
     [ "$sdk" = appletvos ] && plat=3 || plat=8
     for l in $LIBS; do
@@ -203,13 +202,13 @@ for sdk in appletvos appletvsimulator; do
         bad=$(otool -L "$f" | tail -n +3 | awk '{print $1}' | grep -vE '^/usr/lib/lib(c\+\+\.1|System\.B)\.dylib$' || true)
         [ -z "$bad" ] || die "$sdk/$l links $bad"
         # dyld merges exported weak symbols across libraries, so one of these
-        # could end up using MobileGlues' copy of the same C++ code.
+        # could end up using another library's copy of the same C++ code.
         ! xcrun dyld_info -exports "$f" | grep -q 'weak-def' || die "$sdk/$l exports weak symbols"
     done
 done
-if [ -x "$JAVAP" ] && [ -f "$JARS/lwjgl-shaderc-3.4.3.jar" ]; then
+if [ -x "$JAVAP" ] && [ -f "$JARS/lwjgl-shaderc/3.4.3/lwjgl-shaderc-3.4.3.jar" ]; then
     for pair in freetype:libfreetype.dylib shaderc:libshaderc.dylib spvc:libspirv-cross.dylib; do
-        jar="$JARS/lwjgl-${pair%%:*}-3.4.3.jar"
+        jar="$JARS/lwjgl-${pair%%:*}/3.4.3/lwjgl-${pair%%:*}-3.4.3.jar"
         # shellcheck disable=SC2046
         "$JAVAP" -c -constants -p -cp "$jar" $(unzip -Z1 "$jar" | sed -n 's#/#.#g; s/\$Functions\.class$/$Functions/p') \
             > "$OBJ/${pair%%:*}.javap"
@@ -238,8 +237,8 @@ PY
         done
     done
 else
-    say "skipping the export check (no javap or no build/java-26/lwjgl jars)"
+    say "skipping the export check (no GraalVM in deps/graalvm, or no LWJGL jars in build/game)"
 fi
 
 for sdk in appletvos appletvsimulator; do echo "$STAMP" > "$DST/$sdk/.stamp"; done
-say "done in $((SECONDS - START))s: build/deps26/thirdparty/{appletvos,appletvsimulator}/{${LIBS// /,}}"
+say "done: build/deps/thirdparty/{appletvos,appletvsimulator}/{${LIBS// /,}}"

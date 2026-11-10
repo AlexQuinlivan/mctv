@@ -1,0 +1,441 @@
+{
+  "groups": [
+    {
+      "why": "Realms' replies print their public fields, and com.mojang.realmsclient.dto is preserved (fixups.json).",
+      "reflects": [
+        "com.mojang.realmsclient.dto.ValueObject#toString"
+      ]
+    },
+    {
+      "why": "Looks up fields and feature methods by name on the Vulkan struct class it was made with. Every class Minecraft makes one with gets its public fields and methods (fixups.json, reflectsOnParameter), and the analysis registers the one class it names itself.",
+      "reflects": [
+        "com.mojang.renderpearl.backend.vulkan.init.VulkanPNextStruct#fieldOffset"
+      ]
+    },
+    {
+      "why": "Only with debug logging on, to name the class that called it, and it catches a class it can't find.",
+      "reflects": [
+        "net.minecraft.network.syncher.SynchedEntityData#defineId"
+      ]
+    },
+    {
+      "why": "Makes the dragon's phases from the classes EnderDragonPhase names as class literals, which the analysis gives their constructors.",
+      "reflects": [
+        "net.minecraft.world.entity.boss.enderdragon.phases.EnderDragonPhase#getConstructor"
+      ]
+    },
+    {
+      "why": "Sodium generates a class to copy vertices between each pair of formats, numbered in the order the pairs are first used, so no trace can record them all. aot/java/compat/sodium replaces createSerializer with a copier that needs no new class.",
+      "defines": [
+        "net.caffeinemc.mods.sodium.client.render.vertex.serializers.generated.VertexSerializerFactory#define"
+      ]
+    },
+    {
+      "why": "FerriteCore's mixin plugin checks whether classes exist while choosing which mixins apply, which happens in the bake.",
+      "defines": [
+        "malte0811.ferritecore.mixin.config.FerriteMixinConfig#hasClass"
+      ]
+    },
+    {
+      "why": "MixinExtras proxies Mixin's injection info while applying mixins, which happens in the bake.",
+      "defines": [
+        "com.llamalad7.mixinextras.utils.ProxyUtils#getProxy"
+      ]
+    },
+    {
+      "why": "Mixin's launch agents for Forge and LaunchWrapper never run under Fabric. Its injectors, plugins, error handlers, class info and generated inner classes run while applying mixins, in the bake. In the image only Mixin's bootstrap and service run (FlatFabric, FlatMixinService), and the trace covers them.",
+      "defines": [
+        "org.spongepowered.asm.mixin.transformer.ClassInfo#forName",
+        "org.spongepowered.asm.mixin.transformer.InnerClassGenerator$InnerClassInfo#accept",
+        "org.spongepowered.asm.mixin.transformer.MixinInfo#loadMixinClass"
+      ],
+      "reflects": [
+        "org.spongepowered.asm.bridge.RemapperAdapterFML#create",
+        "org.spongepowered.asm.launch.platform.MixinConnectorManager#loadConnectors",
+        "org.spongepowered.asm.launch.platform.MixinContainer#<init>",
+        "org.spongepowered.asm.launch.platform.MixinPlatformAgentFMLLegacy#addReparseableJar",
+        "org.spongepowered.asm.launch.platform.MixinPlatformAgentFMLLegacy#getCoreModManagerClass",
+        "org.spongepowered.asm.launch.platform.MixinPlatformAgentFMLLegacy#getIgnoredMods",
+        "org.spongepowered.asm.launch.platform.MixinPlatformAgentFMLLegacy#injectCorePlugin",
+        "org.spongepowered.asm.launch.platform.MixinPlatformAgentFMLLegacy#isAlreadyInjected",
+        "org.spongepowered.asm.launch.platform.MixinPlatformAgentMinecraftForge#getSideName",
+        "org.spongepowered.asm.launch.platform.MixinPlatformManager#addTokenProvider",
+        "org.spongepowered.asm.mixin.MixinEnvironment#registerTokenProviderClass",
+        "org.spongepowered.asm.mixin.injection.InjectionPoint#create",
+        "org.spongepowered.asm.mixin.injection.selectors.TargetSelector#register",
+        "org.spongepowered.asm.mixin.injection.struct.InjectionInfo#register",
+        "org.spongepowered.asm.mixin.transformer.ClassInfo#<init>",
+        "org.spongepowered.asm.mixin.transformer.ClassInfo#forName",
+        "org.spongepowered.asm.mixin.transformer.InnerClassGenerator#createRemappingAdapter",
+        "org.spongepowered.asm.mixin.transformer.MixinConfig#initDynamicSelector",
+        "org.spongepowered.asm.mixin.transformer.MixinConfig#initInjectionPoint",
+        "org.spongepowered.asm.mixin.transformer.MixinConfig#onSelect",
+        "org.spongepowered.asm.mixin.transformer.MixinProcessor#getErrorHandlers",
+        "org.spongepowered.asm.mixin.transformer.PluginHandle#<init>",
+        "org.spongepowered.asm.mixin.transformer.PluginHandle#findLegacyApply",
+        "org.spongepowered.asm.mixin.transformer.debug.RuntimeDecompiler#decompile",
+        "org.spongepowered.asm.mixin.transformer.ext.extensions.ExtensionClassExporter#initDecompiler",
+        "org.spongepowered.asm.service.MixinService#initService",
+        "org.spongepowered.asm.service.MixinService#runBootServices",
+        "org.spongepowered.asm.service.MixinServiceAbstract#getServiceAgents",
+        "org.spongepowered.asm.util.perf.Profiler#printSummary",
+        "org.spongepowered.include.com.google.gson.internal.ConstructorConstructor#newDefaultConstructor",
+        "org.spongepowered.include.com.google.gson.internal.bind.ReflectiveTypeAdapterFactory#getBoundFields",
+        "org.spongepowered.include.com.google.gson.internal.bind.TypeAdapters$EnumTypeAdapter#<init>"
+      ]
+    },
+    {
+      "why": "Fabric makes mods' entrypoints and language adapters from names in their metadata. They're mods' classes, which are preserved, and the bake registers the interfaces of method-reference entrypoints.",
+      "reflects": [
+        "net.fabricmc.loader.impl.FabricLoaderImpl#setupLanguageAdapters",
+        "net.fabricmc.loader.impl.entrypoint.EntrypointStorage$OldEntry#getOrCreate",
+        "net.fabricmc.loader.impl.util.DefaultLanguageAdapter#create",
+        "net.fabricmc.loader.language.JavaLanguageAdapter#createInstance",
+        "net.fabricmc.loader.language.LanguageAdapter#createInstance"
+      ]
+    },
+    {
+      "why": "Fabric's Log4j hardening, registered in aot/config/common.",
+      "reflects": [
+        "net.fabricmc.loader.impl.game.minecraft.Log4jLogHandler#patchJndi",
+        "net.fabricmc.loader.impl.game.minecraft.Log4jLogHandler#removeSubstitutionLookups"
+      ]
+    },
+    {
+      "why": "Class bytes by name. Mixin asks only while applying mixins, in the bake. Mods that ask for a constant name are found by the analysis, and FlatFabric serves those from the bake (mctv-aot/classes).",
+      "defines": [
+        "net.fabricmc.loader.impl.launch.knot.MixinServiceKnot#getClassBytes",
+        "net.fabricmc.loader.impl.launch.knot.MixinServiceKnot#getClassNode",
+        "net.fabricmc.loader.launch.common.FabricLauncherBase#getClassByteArray"
+      ]
+    },
+    {
+      "why": "Fabric's launch paths, which FlatFabric and FlatGameProvider replace. Knot, its class loader, the applet and server launchers, the bundler and MinecraftGameProvider's launch don't run in the image.",
+      "reflects": [
+        "net.fabricmc.loader.impl.game.minecraft.BundlerProcessor#process",
+        "net.fabricmc.loader.impl.game.minecraft.MinecraftGameProvider#launch",
+        "net.fabricmc.loader.impl.game.minecraft.MinecraftGameProvider#setupLogHandler",
+        "net.fabricmc.loader.impl.game.minecraft.applet.AppletLauncher#<init>",
+        "net.fabricmc.loader.impl.launch.knot.Knot#findEmbedddedGameProvider",
+        "net.fabricmc.loader.impl.launch.server.FabricServerLauncher#main"
+      ]
+    },
+    {
+      "why": "ASM loads classes by name only to merge stack frames or to verify, which Mixin does while applying mixins, in the bake.",
+      "reflects": [
+        "org.objectweb.asm.ClassWriter#getCommonSuperClass",
+        "org.objectweb.asm.tree.analysis.SimpleVerifier#getClass"
+      ]
+    },
+    {
+      "why": "Jackson's version lookup, inside azure-json for msal4j, which Minecraft doesn't sign in with. It catches a version class that isn't there.",
+      "reflects": [
+        "com.azure.json.implementation.jackson.core.util.VersionUtil#versionFor"
+      ]
+    },
+    {
+      "why": "Minecraft uses commons-compress only for tar.gz, for Realms. These sites are zip extra fields and Pack200, which nothing uses.",
+      "reflects": [
+        "org.apache.commons.compress.archivers.zip.ExtraFieldUtils#register",
+        "org.apache.commons.compress.java.util.jar.Pack200#lambda$newInstance$0"
+      ]
+    },
+    {
+      "why": "Java serialization through a chosen class loader, which nothing uses.",
+      "reflects": [
+        "org.apache.commons.io.input.ClassLoaderObjectInputStream#resolveClass",
+        "org.apache.commons.io.input.ClassLoaderObjectInputStream#resolveProxyClass"
+      ]
+    },
+    {
+      "why": "commons-lang3's reflection helpers. Minecraft and the mods use the library for strings, arrays and plain builders. Nothing outside it uses its reflection builders, FieldUtils, AnnotationUtils, SerializationUtils or event support, and ExceptionUtils falls back to getCause when a lookup fails.",
+      "defines": [
+        "org.apache.commons.lang3.event.EventListenerSupport#initializeTransientFields"
+      ],
+      "reflects": [
+        "org.apache.commons.lang3.AnnotationUtils#equals",
+        "org.apache.commons.lang3.AnnotationUtils#hashCode",
+        "org.apache.commons.lang3.AnnotationUtils#toString",
+        "org.apache.commons.lang3.ClassUtils#getClass",
+        "org.apache.commons.lang3.ClassUtils#getPublicMethod",
+        "org.apache.commons.lang3.ClassUtils#lambda$convertClassNamesToClasses$0",
+        "org.apache.commons.lang3.ObjectUtils#clone",
+        "org.apache.commons.lang3.SerializationUtils$ClassLoaderAwareObjectInputStream#resolveClass",
+        "org.apache.commons.lang3.builder.CompareToBuilder#reflectionAppend",
+        "org.apache.commons.lang3.builder.EqualsBuilder#reflectionAppend",
+        "org.apache.commons.lang3.builder.HashCodeBuilder#reflectionAppend",
+        "org.apache.commons.lang3.builder.ReflectionToStringBuilder#appendFieldsIn",
+        "org.apache.commons.lang3.reflect.FieldUtils#getAllFieldsList",
+        "org.apache.commons.lang3.reflect.FieldUtils#getDeclaredField",
+        "org.apache.commons.lang3.reflect.FieldUtils#getField",
+        "org.apache.commons.lang3.reflect.MethodUtils#getAccessibleMethod",
+        "org.apache.commons.lang3.reflect.MethodUtils#getAccessibleMethodFromInterfaceNest",
+        "org.apache.commons.lang3.reflect.MethodUtils#getInvokeMethod",
+        "org.apache.commons.lang3.reflect.MethodUtils#getMatchingAccessibleMethod",
+        "org.apache.commons.lang3.reflect.MethodUtils#getMatchingMethod",
+        "org.apache.commons.lang3.reflect.MethodUtils#getMethodObject",
+        "org.apache.commons.lang3.reflect.MethodUtils#lambda$getMethodsListWithAnnotation$0",
+        "org.apache.commons.lang3.reflect.MethodUtils#toVarArgs"
+      ]
+    },
+    {
+      "why": "FastBufferedStreams look for a getChannel method on the stream they wrap and work without one.",
+      "reflects": [
+        "it.unimi.dsi.fastutil.io.FastBufferedInputStream#<init>",
+        "it.unimi.dsi.fastutil.io.FastBufferedOutputStream#<init>"
+      ]
+    },
+    {
+      "why": "Gson reads JSON into the classes it's given. Minecraft's are registered by the trace and the analysis, authlib and Realms are preserved (fixups.json), and mods' are preserved with the mods.",
+      "reflects": [
+        "com.google.gson.internal.ConstructorConstructor#newDefaultConstructor",
+        "com.google.gson.internal.ConstructorConstructor#newUnsafeAllocator",
+        "com.google.gson.internal.bind.EnumTypeAdapter#<init>",
+        "com.google.gson.internal.bind.ReflectiveTypeAdapterFactory#getBoundFields",
+        "com.google.gson.internal.bind.ReflectiveTypeAdapterFactory$RecordAdapter#<init>",
+        "com.google.gson.internal.reflect.ReflectionHelper#getAccessor"
+      ]
+    },
+    {
+      "why": "Guava's reflection on its callers' classes (Enums.getField, EventBus, Futures.getChecked, ClassPath), which nothing outside Guava uses, and its optional parts (the finalizer thread, Unsafe comparators), which fall back when they're missing.",
+      "reflects": [
+        "com.google.common.base.Enums#getField",
+        "com.google.common.base.FinalizableReferenceQueue#getStartFinalizer",
+        "com.google.common.base.internal.Finalizer#getFinalizeReferentMethod",
+        "com.google.common.eventbus.SubscriberRegistry#getAnnotatedMethodsNotCached",
+        "com.google.common.primitives.UnsignedBytes$LexicographicalComparatorHolder#getBestComparator",
+        "com.google.common.reflect.ClassPath$ClassInfo#load",
+        "com.google.common.reflect.Reflection#initialize",
+        "com.google.common.util.concurrent.FuturesGetChecked#checkExceptionClassValidity",
+        "com.google.common.util.concurrent.FuturesGetChecked$GetCheckedTypeValidatorHolder#getBestValidator"
+      ]
+    },
+    {
+      "why": "ICU loads locale data classes and optional services by name. Minecraft uses ICU for bidirectional text, Arabic shaping and collation, and the analysis registers the collation builder (CollationBuilder) that tailored locales load.",
+      "reflects": [
+        "com.ibm.icu.impl.ResourceBundleWrapper$2#load",
+        "com.ibm.icu.impl.URLHandler#<clinit>",
+        "com.ibm.icu.impl.locale.XCldrStub$Multimap#getInstance",
+        "com.ibm.icu.text.CurrencyMetaInfo#debugString",
+        "com.ibm.icu.text.LocaleDisplayNames#<clinit>",
+        "com.ibm.icu.text.RuleBasedNumberFormat#postProcess",
+        "com.ibm.icu.text.TimeZoneNames#<clinit>",
+        "com.ibm.icu.text.TransliteratorRegistry#instantiateEntry",
+        "com.ibm.icu.util.ULocale$JDKLocaleHelper#<clinit>"
+      ]
+    },
+    {
+      "why": "JNA maps native libraries and structures onto Java classes, for OSHI's system information in crash reports. On macOS the analysis registers the library interfaces JNA and OSHI load (Native.load's callers), and the structures come from the trace. The tvOS app ships no JNA native library, so there it never starts. WindowUtils is for AWT windows, which nothing makes.",
+      "defines": [
+        "com.sun.jna.Native#synchronizedLibrary",
+        "com.sun.jna.Pointer#getValue"
+      ],
+      "reflects": [
+        "com.sun.jna.CallbackReference#getCallbackMethod",
+        "com.sun.jna.CallbackReference#getNativeType",
+        "com.sun.jna.CallbackReference$DefaultCallbackProxy#convertArgument",
+        "com.sun.jna.Function#invoke",
+        "com.sun.jna.Klass#newInstance",
+        "com.sun.jna.Native#findDirectMappedClass",
+        "com.sun.jna.Native#getLibraryOptions",
+        "com.sun.jna.Native#getNativeSize",
+        "com.sun.jna.Native#loadLibraryInstance",
+        "com.sun.jna.Native#lookupField",
+        "com.sun.jna.Native#register",
+        "com.sun.jna.Pointer#readArray",
+        "com.sun.jna.Pointer#writeArray",
+        "com.sun.jna.Structure#getNativeSize",
+        "com.sun.jna.Structure#initializeField",
+        "com.sun.jna.Structure#lambda$getFieldList$0",
+        "com.sun.jna.Structure#newInstance",
+        "com.sun.jna.Structure#size",
+        "com.sun.jna.Structure#updateStructureByReference",
+        "com.sun.jna.Structure#validateField",
+        "com.sun.jna.internal.ReflectionUtils#lookupDeclaredConstructor",
+        "com.sun.jna.internal.ReflectionUtils#lookupMethod",
+        "com.sun.jna.platform.WindowUtils$MacWindowUtils$1#run",
+        "com.sun.jna.platform.WindowUtils$X11WindowUtils#getVisualID",
+        "com.sun.jna.ptr.ByReference#toString"
+      ]
+    },
+    {
+      "why": "JOML's Unsafe backend finds fields of its matrix and vector classes, which the analysis and the trace register. JOML falls back to NIO if the check fails.",
+      "reflects": [
+        "org.joml.MemUtil$MemUtilInternalUnsafe#getDeclaredField",
+        "org.joml.MemUtil$MemUtilUnsafe#getDeclaredField"
+      ]
+    },
+    {
+      "why": "Minecraft's command line options make their values with the option type's valueOf or String constructor. The options are fixed and every launch parses them, so the trace covers them.",
+      "reflects": [
+        "joptsimple.internal.Reflection#constructorConverter",
+        "joptsimple.internal.Reflection#valueOfConverter"
+      ]
+    },
+    {
+      "why": "Log4j loads its provider and plugins from the lists in its jars, builds what its configuration names, and loads its own optional parts by name, falling back when they're missing. The configuration is Minecraft's and fixed, so the trace covers it. Printing a stack trace looks up each frame's class to name its jar, and skips ones it can't find. The JDBC, JmDNS and custom factory parts are only reached through configuration Minecraft doesn't have, and picocli is for Log4j's own command line tools.",
+      "reflects": [
+        "org.apache.logging.log4j.core.appender.db.jdbc.AbstractDriverManagerConnectionSource#loadDriver",
+        "org.apache.logging.log4j.core.appender.db.jdbc.FactoryMethodConnectionSource#createConnectionSource",
+        "org.apache.logging.log4j.core.appender.rolling.OnStartupTriggeringPolicy#initStartTime",
+        "org.apache.logging.log4j.core.async.AsyncQueueFullPolicyFactory#createCustomRouter",
+        "org.apache.logging.log4j.core.config.ConfigurationFactory#addFactory",
+        "org.apache.logging.log4j.core.config.ReliabilityStrategyFactory#getReliabilityStrategy",
+        "org.apache.logging.log4j.core.config.builder.impl.DefaultConfigurationBuilder#build",
+        "org.apache.logging.log4j.core.config.plugins.convert.Base64Converter#<clinit>",
+        "org.apache.logging.log4j.core.config.plugins.convert.DateTypeConverter#<clinit>",
+        "org.apache.logging.log4j.core.config.plugins.convert.TypeConverters#convert",
+        "org.apache.logging.log4j.core.config.plugins.util.PluginBuilder#createBuilder",
+        "org.apache.logging.log4j.core.config.plugins.util.PluginBuilder#findFactoryMethod",
+        "org.apache.logging.log4j.core.config.plugins.util.PluginRegistry#decodeCacheFiles",
+        "org.apache.logging.log4j.core.config.plugins.util.ResolverUtil#addIfMatching",
+        "org.apache.logging.log4j.core.impl.ContextDataFactory#createCachedClass",
+        "org.apache.logging.log4j.core.impl.ContextDataFactory#createDefaultConstructor",
+        "org.apache.logging.log4j.core.impl.ContextDataFactory#createInitialCapacityConstructor",
+        "org.apache.logging.log4j.core.impl.ThrowableProxyHelper#loadClass",
+        "org.apache.logging.log4j.core.net.MulticastDnsAdvertiser#advertise",
+        "org.apache.logging.log4j.core.net.MulticastDnsAdvertiser#buildServiceInfoVersion1",
+        "org.apache.logging.log4j.core.net.MulticastDnsAdvertiser#buildServiceInfoVersion3",
+        "org.apache.logging.log4j.core.net.MulticastDnsAdvertiser#createJmDnsVersion3",
+        "org.apache.logging.log4j.core.net.MulticastDnsAdvertiser#initializeJmDns",
+        "org.apache.logging.log4j.core.net.MulticastDnsAdvertiser#unadvertise",
+        "org.apache.logging.log4j.core.pattern.PatternParser#createConverter",
+        "org.apache.logging.log4j.core.pattern.ThrowableExtendedStackTraceRenderer#lambda$static$0",
+        "org.apache.logging.log4j.core.pattern.ThrowableExtendedStackTraceRenderer#lambda$static$1",
+        "org.apache.logging.log4j.core.pattern.ThrowableExtendedStackTraceRenderer#lambda$static$2",
+        "org.apache.logging.log4j.core.tools.picocli.CommandLine#init",
+        "org.apache.logging.log4j.core.tools.picocli.CommandLine$Help#<init>",
+        "org.apache.logging.log4j.core.tools.picocli.CommandLine$Interpreter#<init>",
+        "org.apache.logging.log4j.core.tools.picocli.CommandLine$Interpreter#applyValuesToCollectionField",
+        "org.apache.logging.log4j.core.tools.picocli.CommandLine$Interpreter#applyValuesToMapField",
+        "org.apache.logging.log4j.core.util.Loader#initializeClass",
+        "org.apache.logging.log4j.core.util.Loader#isClassAvailable",
+        "org.apache.logging.log4j.core.util.Loader#loadClass",
+        "org.apache.logging.log4j.core.util.Loader#newCheckedInstanceOf",
+        "org.apache.logging.log4j.core.util.Loader#newInstanceOf",
+        "org.apache.logging.log4j.core.util.OptionConverter#instantiateByClassName",
+        "org.apache.logging.log4j.core.util.OptionConverter#toLevel",
+        "org.apache.logging.log4j.core.util.ReflectionUtil#instantiate",
+        "org.apache.logging.log4j.core.util.TypeUtil#getAllDeclaredFields",
+        "org.apache.logging.log4j.core.util.WatcherFactory#instantiate",
+        "org.apache.logging.log4j.spi.Provider#loadLoggerContextFactory",
+        "org.apache.logging.log4j.spi.Provider#loadThreadContextMap",
+        "org.apache.logging.log4j.util.LoaderUtil#isClassAvailable",
+        "org.apache.logging.log4j.util.LoaderUtil#loadClass",
+        "org.apache.logging.log4j.util.LoaderUtil#newCheckedInstanceOf",
+        "org.apache.logging.log4j.util.LoaderUtil#newInstanceOf",
+        "org.apache.logging.log4j.util.LoaderUtil#newInstanceOfUnchecked"
+      ]
+    },
+    {
+      "why": "LWJGL picks its memory allocator, debug stream and platform mapper by name, from its own classes and its settings. The defaults are registered by the trace.",
+      "reflects": [
+        "org.lwjgl.system.APIUtil#apiClassTokens",
+        "org.lwjgl.system.APIUtil#apiFilterExtensions",
+        "org.lwjgl.system.APIUtil#getDebugStream",
+        "org.lwjgl.system.MemoryBackend#getDefaultInstance",
+        "org.lwjgl.system.MemoryBackendUnsafeLegacy#getFieldOffset",
+        "org.lwjgl.system.MemoryManage#getInstance",
+        "org.lwjgl.system.MemoryUtil#createBackend",
+        "org.lwjgl.system.Platform#getMapper"
+      ]
+    },
+    {
+      "why": "LZ4 and xxHash pick their native, Unsafe or Java implementation by name and fall back to the next.",
+      "reflects": [
+        "net.jpountz.lz4.LZ4Factory#<init>",
+        "net.jpountz.lz4.LZ4Factory#classInstance",
+        "net.jpountz.xxhash.XXHashFactory#classInstance"
+      ]
+    },
+    {
+      "why": "Netty probes the JDK and its own optional parts by name and falls back when one is missing. The NIO transport Minecraft uses is registered by the trace. BouncyCastle's ALPN is only for BouncyCastle as the TLS provider, and the self-signed certificate generator is for tests. Its Java object serialization codec isn't used.",
+      "defines": [
+        "io.netty.handler.ssl.BouncyCastleAlpnSslUtils#setHandshakeApplicationProtocolSelector"
+      ],
+      "reflects": [
+        "io.netty.channel.ChannelHandlerMask$2#run",
+        "io.netty.channel.ReflectiveChannelFactory#<init>",
+        "io.netty.channel.nio.NioIoHandler$3#run",
+        "io.netty.handler.codec.serialization.ClassLoaderClassResolver#resolve",
+        "io.netty.handler.ssl.BouncyCastleAlpnSslUtils$1#run",
+        "io.netty.handler.ssl.BouncyCastleAlpnSslUtils$2#run",
+        "io.netty.handler.ssl.BouncyCastleAlpnSslUtils$3#run",
+        "io.netty.handler.ssl.BouncyCastleAlpnSslUtils$4#run",
+        "io.netty.handler.ssl.BouncyCastleAlpnSslUtils$5#run",
+        "io.netty.handler.ssl.BouncyCastleAlpnSslUtils$6#run",
+        "io.netty.handler.ssl.OpenSslX509TrustManagerWrapper$3#run",
+        "io.netty.handler.ssl.SslHandler#ignoreException",
+        "io.netty.handler.ssl.util.OpenJdkSelfSignedCertGenerator$2#run",
+        "io.netty.handler.ssl.util.OpenJdkSelfSignedCertGenerator$3#run",
+        "io.netty.util.ResourceLeakDetectorFactory$DefaultResourceLeakDetectorFactory#customClassConstructor",
+        "io.netty.util.ResourceLeakDetectorFactory$DefaultResourceLeakDetectorFactory#obsoleteCustomClassConstructor",
+        "io.netty.util.concurrent.ConcurrentSkipListIntObjMultimap#<clinit>",
+        "io.netty.util.internal.ClassInitializerUtil#tryLoadClass",
+        "io.netty.util.internal.CleanerJava9$1#run",
+        "io.netty.util.internal.NativeLibraryLoader#tryToLoadClass",
+        "io.netty.util.internal.NativeLibraryLoader$1#run",
+        "io.netty.util.internal.PlatformDependent0$2#run",
+        "io.netty.util.internal.PlatformDependent0$4#run",
+        "io.netty.util.internal.PlatformDependent0$7#run"
+      ]
+    },
+    {
+      "why": "SLF4J finds its provider (Log4j's, through ServiceLoader and the trace) and checks a logger for a method, falling back without it.",
+      "reflects": [
+        "org.slf4j.LoggerFactory#loadExplicitlySpecified",
+        "org.slf4j.helpers.SubstituteLogger#isDelegateEventAware"
+      ]
+    },
+    {
+      "why": "Controlify's SDL bindings, through FFM. The app ships SDL built for tvOS (Frameworks/libSDL3_controlify.dylib, passed as dev.isxander.sdl.library), the trace registers the downcalls, and SDL's callbacks go through libffi (FfiUpcalls, in the app's agent), because an image can't make FFM upcalls here.",
+      "native": [
+        "dev.isxander.sdl.ffm.SdlNativeLibrary#configure",
+        "dev.isxander.sdl.ffm.internal.SdlAudioPostmixCallback#<clinit>",
+        "dev.isxander.sdl.ffm.internal.SdlAudioStreamCallback#<clinit>",
+        "dev.isxander.sdl.ffm.internal.SdlCleanupPropertyCallback#<clinit>",
+        "dev.isxander.sdl.ffm.internal.SdlEnumeratePropertiesCallback#<clinit>",
+        "dev.isxander.sdl.ffm.internal.SdlEventFilter#<clinit>",
+        "dev.isxander.sdl.ffm.internal.SdlFfmNative#downcall",
+        "dev.isxander.sdl.ffm.internal.SdlIoStreamInterfaceLayout$Close#<clinit>",
+        "dev.isxander.sdl.ffm.internal.SdlIoStreamInterfaceLayout$Flush#<clinit>",
+        "dev.isxander.sdl.ffm.internal.SdlIoStreamInterfaceLayout$Read#<clinit>",
+        "dev.isxander.sdl.ffm.internal.SdlIoStreamInterfaceLayout$Seek#<clinit>",
+        "dev.isxander.sdl.ffm.internal.SdlIoStreamInterfaceLayout$Size#<clinit>",
+        "dev.isxander.sdl.ffm.internal.SdlIoStreamInterfaceLayout$Write#<clinit>"
+      ]
+    },
+    {
+      "why": "JNA's own native library, which the tvOS app doesn't ship, so JNA fails to start there and OSHI's system information does without it.",
+      "native": [
+        "com.sun.jna.Native#loadNativeDispatchLibrary",
+        "com.sun.jna.Native#loadNativeDispatchLibraryFromClasspath",
+        "com.sun.jna.NativeLibrary#loadLibrary"
+      ]
+    },
+    {
+      "why": "Netty's native transports and TLS, which it tries and falls back from, to NIO and the JDK's TLS.",
+      "native": [
+        "io.netty.util.internal.NativeLibraryUtil#loadLibrary"
+      ]
+    },
+    {
+      "why": "LZ4's JNI implementation, which it tries and falls back from to its Java one.",
+      "native": [
+        "net.jpountz.util.Native#load"
+      ]
+    },
+    {
+      "why": "Minecraft's Tracy profiler, only loaded with --tracy, which the app never passes.",
+      "native": [
+        "com.mojang.jtracy.Loader#load"
+      ]
+    },
+    {
+      "why": "Mixin's service finds classes by name for Mixin and for mixin plugins. Mixin itself only asks while applying mixins, in the bake. At run time only plugins' onLoad can ask, and Controlify's asks for its own classes, which are preserved with the mod.",
+      "reflects": [
+        "net.fabricmc.loader.impl.launch.knot.MixinServiceKnot#findClass"
+      ]
+    }
+  ]
+}

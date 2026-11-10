@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Copy recent crash/jetsam reports from the Apple TV into out/crashlogs/.
 #   scripts/device-crashlogs.sh            everything
-#   scripts/device-crashlogs.sh MCTV       only names containing MCTV (also try JitProbe, JetsamEvent)
+#   scripts/device-crashlogs.sh MCTV       only names containing MCTV (or JetsamEvent)
 source "$(dirname "$0")/lib.sh"
 DEVICE="${DEVICE:-}"
 [ -f "$ROOT/config/signing.env" ] && source "$ROOT/config/signing.env"

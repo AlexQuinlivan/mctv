@@ -1,27 +1,26 @@
-// The tvOS host app. It boots the Minecraft version pushed from your build Mac into
-// Library/Caches/mctv/minecraft through Amethyst's launcher.jar, and the game
-// renders into a full-screen CAMetalLayer.
+// The tvOS app. It signs in, then runs the game (libmctvgame.dylib, built by
+// aot/aot.py) on the files your build Mac pushed into
+// Library/Caches/mctv/minecraft. The game renders into a full-screen
+// CAMetalLayer through MoltenVK.
 //
 // Launch arguments:
-//   -mc VERSION       Minecraft version (default: minecraft/mctv-version.txt)
-//   -xmx MB           Java heap (default 1024, or 768 for 26.x)
-//   -renderer R       mobileglues (default, GLES 3 via MobileGlues) or angle
-//                     (ANGLE's desktop GL)
-//   -graphics API     vulkan or opengl, Minecraft's renderer on 26.x
-//   -option KEY:VALUE set any other options.txt value on 26.x
+//   -mc VERSION       the version to launch (default: minecraft/mctv-version.txt)
+//   -xmx MB           heap size (default 768)
+//   -option KEY:VALUE set any other options.txt value
 //   -showlog          keep the boot screen up after the first frame
 //   -inputtest SCRIPT scripted controller test (see MCInput.m), or "default"
-//   -jvmarg ARG       extra JVM argument (repeatable)
+//   -jvmarg ARG       an extra -X or -D option for the game (repeatable)
+//   -gamearg ARG      an extra argument for Minecraft (repeatable)
 
 #import <GameController/GameController.h>
 #import <QuartzCore/QuartzCore.h>
 #import <UIKit/UIKit.h>
-#import "JVM.h"
+#import "Game.h"
 #import "MCAccount.h"
 #import "MCBootScreen.h"
 #import "MCInput.h"
 #import "MCSignInView.h"
-#include "bridge/bridge.h"
+#include "SDLHost.h"
 
 @interface MCGameView : UIView
 @end
@@ -61,8 +60,6 @@ static UIView *MakePointer(void) {
 
 static __weak MCRootViewController *gRoot;
 static void hideLogOnFirstFrame(void);
-// The signed-in Microsoft account's player name.
-static NSString *gSignedInUser;
 
 @implementation MCRootViewController {
     MCGameView *_game;
@@ -101,7 +98,7 @@ static NSString *gSignedInUser;
             if (me) [me->_boot addLine:line kind:kind];
         });
     });
-    [self tailJavaLog];  // note where the previous run's log ends, before Java truncates it
+    [self tailJavaLog];  // note where the previous run's log ends, before the game truncates it
     _tail = [NSTimer scheduledTimerWithTimeInterval:0.5 repeats:YES block:^(NSTimer *t) { [weakSelf tailJavaLog]; }];
 }
 
@@ -126,7 +123,6 @@ static NSString *gSignedInUser;
     [MCAccount refreshIfNeeded:^(BOOL usable, NSString *note) {
         if (note) MCLog(@"%@", note);
         if (usable) {
-            gSignedInUser = name;
             MCStatus(MCLogOK, @"Signed in as %@", name);
             go();
         } else {
@@ -148,7 +144,6 @@ static NSString *gSignedInUser;
     } done:^(NSString *name, NSString *error) {
         if (name) {
             [view removeFromSuperview];
-            gSignedInUser = name;
             MCStatus(MCLogOK, @"Signed in as %@", name);
             go();
             return;
@@ -163,21 +158,20 @@ static NSString *gSignedInUser;
 }
 
 - (void)startGame:(NSArray<NSString *> *)args {
-    // Window size must be known before Java starts (GLFW reads it at class init).
+    // SDL asks for the screen size as the game starts.
     CGSize px = CGSizeMake(_game.bounds.size.width * _game.layer.contentsScale,
                            _game.bounds.size.height * _game.layer.contentsScale);
-    windowWidth = (int)px.width & ~1;
-    windowHeight = (int)px.height & ~1;
+    MCScreenWidth = (int)px.width & ~1;
+    MCScreenHeight = (int)px.height & ~1;
     MCGameLayer = (__bridge void *)_game.layer;
     if (![args containsObject:@"-showlog"]) MCOnFirstFrame = hideLogOnFirstFrame;
     _input = [[MCInput alloc] initWithPointer:_pointer scale:_game.layer.contentsScale];
     [_input start];
     NSString *inputTest = [MCRootViewController argValue:@"-inputtest" in:args];
     if (inputTest) [_input runTestScript:inputTest];
-    int w = windowWidth, h = windowHeight;
     int fps = (int)self.view.window.windowScene.screen.maximumFramesPerSecond ?: 60;
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
-        [MCRootViewController runMinecraft:args width:w height:h fps:fps];
+        [MCRootViewController runMinecraft:args fps:fps];
     });
 }
 
@@ -216,105 +210,86 @@ static void hideLogOnFirstFrame(void) {
     return (i != NSNotFound && i + 1 < args.count) ? args[i + 1] : nil;
 }
 
-+ (NSMutableArray<NSString *> *)extraJvmArgs:(NSArray<NSString *> *)args {
++ (NSArray<NSString *> *)repeated:(NSString *)name in:(NSArray<NSString *> *)args {
     NSMutableArray *out = [NSMutableArray new];
     for (NSUInteger i = 1; i + 1 < args.count; i++)
-        if ([args[i] isEqualToString:@"-jvmarg"]) [out addObject:args[++i]];
+        if ([args[i] isEqualToString:name]) [out addObject:args[++i]];
     return out;
 }
 
-+ (void)runMinecraft:(NSArray<NSString *> *)args width:(int)w height:(int)h fps:(int)fps {
-    NSFileManager *fm = NSFileManager.defaultManager;
-    NSString *bundle = NSBundle.mainBundle.bundlePath;
++ (void)runMinecraft:(NSArray<NSString *> *)args fps:(int)fps {
     NSString *gameDir = [MCDataDir() stringByAppendingPathComponent:@"minecraft"];
     NSString *home = [MCDataDir() stringByAppendingPathComponent:@"home"];
     NSString *version = [self argValue:@"-mc" in:args]
         ?: [[NSString stringWithContentsOfFile:[gameDir stringByAppendingPathComponent:@"mctv-version.txt"]
                                       encoding:NSUTF8StringEncoding error:nil]
             stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
-    NSString *user = gSignedInUser;
-    NSString *libs = [bundle stringByAppendingPathComponent:@"java/libs"];
-    // Minecraft 26.x uses LWJGL 3.4.3 with SDL 3 instead of Amethyst's GLFW.
-    // An lwjgl-sdl jar in java/libs marks such a build.
-    BOOL sdl = NO;
-    for (NSString *f in [fm contentsOfDirectoryAtPath:libs error:nil]) if ([f hasPrefix:@"lwjgl-sdl"]) sdl = YES;
-    // 26.x uses more GPU memory, which counts against the same limit as the
-    // heap. With 1024 MB a world came within 60 MB of it. 768 leaves about 200 MB.
-    NSString *xmx = [self argValue:@"-xmx" in:args] ?: (sdl ? @"768" : @"1024");
-
-    NSString *versionJson = [NSString stringWithFormat:@"%@/versions/%@/%@.json", gameDir, version, version];
-    if (!version.length || ![fm fileExistsAtPath:versionJson]) {
-        MCLog(@"ERROR: no Minecraft here yet (%@). Push one from your build Mac with scripts/mc-device.sh", version ?: @"no version");
+    // tvOS jetsams the app at about 2.1 GB, GPU memory included. A world's GPU
+    // memory leaves room for a 768 MB heap.
+    NSString *xmx = [self argValue:@"-xmx" in:args] ?: @"768";
+    NSDictionary *(^versionJSON)(NSString *) = ^NSDictionary *(NSString *v) {
+        NSData *data = [NSData dataWithContentsOfFile:[NSString stringWithFormat:@"%@/versions/%@/%@.json", gameDir, v, v]];
+        return data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
+    };
+    NSDictionary *meta = version.length ? versionJSON(version) : nil;
+    if (!meta) {
+        MCLog(@"ERROR: no Minecraft here yet (%@). Push one from your build Mac with aot/aot.py device", version ?: @"no version");
         return;
     }
-    if (![fm fileExistsAtPath:[NSString stringWithFormat:@"%@/accounts/%@.json", home, user]]) {
-        MCLog(@"ERROR: no profile %@ in %@/accounts", user, home);
+    // A Fabric version names the game's version it builds on, which has the assets
+    if (!meta[@"assetIndex"] && meta[@"inheritsFrom"]) meta = versionJSON(meta[@"inheritsFrom"]) ?: meta;
+    NSDictionary<NSString *, NSString *> *login = MCAccount.gameLogin;
+    if (!login) {
+        MCLog(@"ERROR: the saved sign-in is gone. Restart the app to sign in again");
         return;
     }
-    MCLog(@"Minecraft %@ for %@ at %dx%d, %@ MB heap", version, user, w, h, xmx);
+    MCLog(@"Minecraft %@ for %@ at %dx%d, %@ MB heap", version, login[@"username"], MCScreenWidth, MCScreenHeight, xmx);
+    [self prepareSDL:args gameDir:gameDir version:version fps:fps];
 
-    // Read by launcher.jar (Tools) and lwjgl.jar (GLFW).
-    setenv("BUNDLE_PATH", bundle.fileSystemRepresentation, 1);
-    setenv("AME_HOME", home.fileSystemRepresentation, 1);
-    setenv("GAME_DIR", gameDir.fileSystemRepresentation, 1);
-    setenv("POJAV_NATIVE_LIB", NSBundle.mainBundle.executablePath.fileSystemRepresentation, 1);
-    NSString *renderer = [self argValue:@"-renderer" in:args] ?: @"mobileglues";
-    setenv("MCTV_RENDERER", renderer.UTF8String, 1);
-    NSString *glLib = @(MCRendererLibrary());
-    MCLog(@"Renderer %@ (%@)", renderer, glLib);
-
-    if (sdl) [self prepareSDL:args gameDir:gameDir version:version fps:fps];
-    // 26.x loads OpenGL through libmctvgl, which fixes the version MobileGlues
-    // reports (mctv/gl/mctv_gl.c).
-    if (sdl && [glLib isEqualToString:@"libmobileglues.dylib"]) glLib = @"libmctvgl.dylib";
-    NSMutableArray *jvmArgs = [@[
-        @"-XstartOnFirstThread",
-        @"-Djava.system.class.loader=net.kdt.pojavlaunch.PojavClassLoader",
-        @"-Xms128M",
+    NSString *frameworks = NSBundle.mainBundle.privateFrameworksPath;
+    NSMutableArray *options = [@[
+        @"-Xms512M",  // a heap loading fits in
         [NSString stringWithFormat:@"-Xmx%@M", xmx],
-        // Kept small because every launch on the TV prepares the whole code cache over the network.
-        @"-XX:ReservedCodeCacheSize=64M",
+        // The image reserves 32 GB of address space for its heap by default,
+        // more than tvOS gives an app without extended addressing (code 801).
+        @"-XX:ReservedAddressSpaceSize=2g",
         [NSString stringWithFormat:@"-Duser.dir=%@", gameDir],
         [NSString stringWithFormat:@"-Duser.home=%@", home],
         [NSString stringWithFormat:@"-Duser.timezone=%@", NSTimeZone.localTimeZone.name],
-        [NSString stringWithFormat:@"-DUIScreen.maximumFramesPerSecond=%d", fps],
-        [NSString stringWithFormat:@"-Dcacio.managed.screensize=%dx%d", w, h],  // -> glfw.windowSize
-        @"-Dorg.lwjgl.glfw.checkThread0=false",
-        @"-Dorg.lwjgl.system.allocator=system",
-        [NSString stringWithFormat:@"-Dorg.lwjgl.opengl.libname=%@", glLib],
-        @"-Dlog4j2.formatMsgNoLookups=true",
-        @"-Dfml.earlyprogresswindow=false",
-        @"-Djava.awt.headless=true",
-        @"--enable-native-access=ALL-UNNAMED",          // LWJGL and the launcher load natives
-        @"--sun-misc-unsafe-memory-access=allow",       // JOML and friends still use Unsafe
-        @"-Dminecraft.launcher.brand=mctv",
-        [NSString stringWithFormat:@"-javaagent:%@/patchjna_agent.jar=", libs],
-    ] mutableCopy];
-    if (sdl) {
-        // LWJGL 3.4.3 loads its natives, SDL, shaderc, SPIRV-Cross and MoltenVK from the app's Frameworks.
-        [jvmArgs addObject:[NSString stringWithFormat:@"-Dorg.lwjgl.librarypath=%@", NSBundle.mainBundle.privateFrameworksPath]];
+        [NSString stringWithFormat:@"-Djava.io.tmpdir=%@", NSTemporaryDirectory()],
+        [NSString stringWithFormat:@"-Djava.library.path=%@", frameworks],
+        // LWJGL loads its natives, SDL, OpenAL, shaderc, SPIRV-Cross and MoltenVK from the app's Frameworks.
+        [NSString stringWithFormat:@"-Dorg.lwjgl.librarypath=%@", frameworks],
         // Mojang's jars carry the SHA-1 of their macOS natives, which the tvOS
         // builds never match, so LWJGL would warn for every library.
-        [jvmArgs addObject:@"-Dorg.lwjgl.util.NoHashChecks=true"];
-        // Fixes to Minecraft's classes as they load (java/mctv-agent).
-        [jvmArgs addObject:[NSString stringWithFormat:@"-javaagent:%@/mctv-agent.jar", libs]];
-        // Controlify gets its own SDL, as it would on a desktop (scripts/prepare-26.sh).
-        [jvmArgs addObject:[NSString stringWithFormat:@"-Ddev.isxander.sdl.library=%@/libSDL3_controlify.dylib", NSBundle.mainBundle.privateFrameworksPath]];
-    }
-    [jvmArgs addObjectsFromArray:[self extraJvmArgs:args]];
-    [jvmArgs addObjectsFromArray:@[@"-cp", [libs stringByAppendingPathComponent:@"*"]]];
+        @"-Dorg.lwjgl.util.NoHashChecks=true",
+        @"-Dorg.lwjgl.system.allocator=system",
+        @"-Dorg.lwjgl.vulkan.libname=libMoltenVK.dylib",
+        // Controlify's own SDL (scripts/prepare-natives.sh)
+        [NSString stringWithFormat:@"-Ddev.isxander.sdl.library=%@/libSDL3_controlify.dylib", frameworks],
+        @"-Dlog4j2.formatMsgNoLookups=true",
+        @"-Dminecraft.launcher.brand=mctv",
+    ] mutableCopy];
+    [options addObjectsFromArray:[self repeated:@"-jvmarg" in:args]];
+    NSMutableArray *game = [@[
+        @"--username", login[@"username"], @"--version", version, @"--gameDir", gameDir,
+        @"--assetsDir", [gameDir stringByAppendingPathComponent:@"assets"],
+        @"--assetIndex", meta[@"assetIndex"][@"id"] ?: version,
+        @"--uuid", login[@"profileId"], @"--accessToken", login[@"accessToken"],
+        @"--xuid", login[@"xuid"], @"--userType", @"msa", @"--versionType", meta[@"type"] ?: @"release",
+    ] mutableCopy];
+    [game addObjectsFromArray:[self repeated:@"-gamearg" in:args]];
     // Mods write config/ and friends through relative paths, which the OS
     // resolves against the working directory ("/", read-only), not user.dir.
     if (chdir(gameDir.fileSystemRepresentation) != 0) MCLog(@"chdir %@ failed: %s", gameDir, strerror(errno));
-    int rc = MCLaunchJVM(jvmArgs, @"net.kdt.pojavlaunch.PojavLauncher", @[user, version]);
-    MCLog(@"ERROR: Java stopped (JLI_Launch returned %d); details in java.log", rc);
+    int rc = MCLaunchGame(options, game);
+    MCLog(@"ERROR: Minecraft stopped (run_main returned %d); details in java.log", rc);
 }
 
-// Minecraft 26.x runs on SDL through MCTV's own SDL video backend
-// (mctv/sdl/SDL_mctvvideo.m, sdl_bridge.m).
+// Minecraft runs on SDL through MCTV's own SDL video backend
+// (mctv/sdl/SDL_mctvvideo.m, SDLHost.m).
 + (void)prepareSDL:(NSArray<NSString *> *)args gameDir:(NSString *)gameDir version:(NSString *)version fps:(int)fps {
-    MCSDLMode = true;
-    MCSDLRefreshRate = fps;
+    MCRefreshRate = fps;
     setenv("SDL_VIDEO_DRIVER", "mctv", 1);           // never UIKit's backend
     setenv("SDL_TV_REMOTE_AS_JOYSTICK", "0", 1);     // MCInput handles the Siri Remote
     // Controlify turns on Steam Controller support, which makes SDL open
@@ -335,41 +310,35 @@ static void hideLogOnFirstFrame(void) {
     // translating it. Mods only load when Fabric is what's launched.
     if ([version containsString:@"fabric"])
         for (NSString *f in [NSFileManager.defaultManager contentsOfDirectoryAtPath:[gameDir stringByAppendingPathComponent:@"mods"] error:nil])
-            if ([f hasPrefix:@"controlify"]) MCSDLPadToMods = true;
-    // -graphics and -option write to options.txt.
-    NSMutableDictionary<NSString *, NSString *> *options = [NSMutableDictionary dictionary];
-    NSString *api = [self argValue:@"-graphics" in:args];
-    if (api.length) {
-        options[@"preferredGraphicsBackend"] = [NSString stringWithFormat:@"\"%@\"", api];
-        // After a failed start Minecraft drops a Vulkan choice back to its default
-        // (OpenGL). A renderer picked here is deliberate, so it stays.
-        options[@"startedCleanly"] = @"true";
-    }
+            if ([f hasPrefix:@"controlify"]) MCControllerToMods = true;
+    // Vulkan is the only renderer. After a start that didn't finish Minecraft
+    // would try its default, OpenGL, so the choice is written at every launch.
+    // -option writes anything else to options.txt.
+    NSMutableDictionary<NSString *, NSString *> *options = [@{
+        @"preferredGraphicsBackend": @"\"vulkan\"", @"startedCleanly": @"true",
+    } mutableCopy];
     for (NSUInteger i = 0; i + 1 < args.count; i++) {
         NSRange colon = [args[i + 1] rangeOfString:@":"];
         if ([args[i] isEqualToString:@"-option"] && colon.location != NSNotFound && colon.location > 0)
             options[[args[i + 1] substringToIndex:colon.location]] = [args[i + 1] substringFromIndex:colon.location + 1];
     }
-    if (options.count) {
-        NSString *path = [gameDir stringByAppendingPathComponent:@"options.txt"];
-        NSString *text = [NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:nil] ?: @"";
-        NSMutableArray *lines = [NSMutableArray array];
-        for (NSString *l in [text componentsSeparatedByString:@"\n"]) {
-            NSRange colon = [l rangeOfString:@":"];
-            if (l.length && !(colon.location != NSNotFound && options[[l substringToIndex:colon.location]])) [lines addObject:l];
-        }
-        for (NSString *key in options) [lines addObject:[NSString stringWithFormat:@"%@:%@", key, options[key]]];
-        [[[lines componentsJoinedByString:@"\n"] stringByAppendingString:@"\n"] writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:nil];
+    NSString *path = [gameDir stringByAppendingPathComponent:@"options.txt"];
+    NSString *text = [NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:nil] ?: @"";
+    NSMutableArray *lines = [NSMutableArray array];
+    for (NSString *l in [text componentsSeparatedByString:@"\n"]) {
+        NSRange colon = [l rangeOfString:@":"];
+        if (l.length && !(colon.location != NSNotFound && options[[l substringToIndex:colon.location]])) [lines addObject:l];
     }
-    MCLog(@"SDL mode: Minecraft 26.x, renderer %@, controller %@", api.length ? api : @"from options.txt",
-          MCSDLPadToMods ? @"through Controlify" : @"translated to keys and mouse");
+    for (NSString *key in options) [lines addObject:[NSString stringWithFormat:@"%@:%@", key, options[key]]];
+    [[[lines componentsJoinedByString:@"\n"] stringByAppendingString:@"\n"] writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:nil];
+    MCLog(@"SDL: controller %@", MCControllerToMods ? @"through Controlify" : @"translated to keys and mouse");
 }
 
 - (void)tailJavaLog {
     NSString *path = [MCDataDir() stringByAppendingPathComponent:@"java.log"];
     unsigned long long size = [[NSFileManager.defaultManager attributesOfItemAtPath:path error:nil] fileSize];
-    // Skip the previous run's log, which stays until Java truncates it. Then
-    // follow the new one from the top.
+    // Skip the previous run's log, which stays until the game's start truncates
+    // it. Then follow the new one from the top.
     if (!_javaLogPrimed) {
         _javaLogPrimed = YES;
         _javaLogOffset = size;
@@ -385,7 +354,7 @@ static void hideLogOnFirstFrame(void) {
     _javaLogOffset += data.length;
     NSString *text = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding]
         ?: [[NSString alloc] initWithData:data encoding:NSISOLatin1StringEncoding];
-    [_boot consumeJavaLog:text];
+    [_boot consumeGameLog:text];
 }
 @end
 
@@ -408,7 +377,6 @@ static void hideLogOnFirstFrame(void) {
 @end
 
 int main(int argc, char *argv[]) {
-    if (MCIsJLIReentry()) return MCMainReentry(argc, argv);
     @autoreleasepool {
         return UIApplicationMain(argc, argv, nil, NSStringFromClass(MCAppDelegate.class));
     }

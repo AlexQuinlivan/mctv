@@ -1,13 +1,9 @@
 #!/usr/bin/env python3
-"""Download one Minecraft version from Mojang's servers into a game directory
-laid out the way Amethyst's launcher.jar expects. Files already there with the
-right SHA-1 are skipped.
+"""Download one Minecraft version from Mojang's servers into a game directory,
+laid out as the launcher does it. Files already there with the right SHA-1 are
+skipped.
 
-    python3 -I scripts/fetch-minecraft.py 1.21.11 build/mcgame
-    python3 -I scripts/fetch-minecraft.py 26.3 build/mc26 --lwjgl build/java-26/lwjgl
-
---lwjgl DIR also puts the version's own LWJGL Java jars (no natives) in DIR,
-for versions newer than the LWJGL the app bundles.
+    python3 -I scripts/fetch-minecraft.py 26.3 build/game
 """
 import concurrent.futures
 import hashlib
@@ -20,10 +16,9 @@ MANIFEST = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json"
 RESOURCES = "https://resources.download.minecraft.net"
 UA = {"User-Agent": "mctv-fetch/1.0"}
 
-# LWJGL comes from Amethyst's build, and native jars can't load on tvOS.
-# The netty-transport-classes-* and netty-transport-native-unix-common jars are
+# Native jars are for desktops. The app brings its own natives. The
+# netty-transport-classes-* and netty-transport-native-unix-common jars are
 # plain Java and must stay. Without them even single-player hangs at "Loading terrain".
-SKIP_PREFIXES = ("org.lwjgl",)
 SKIP_PARTS = (":natives-", "netty-transport-native-epoll:", "netty-transport-native-kqueue:")
 
 
@@ -69,7 +64,6 @@ def allowed(lib):
 
 def main():
     version, out = sys.argv[1], sys.argv[2]
-    lwjgl_dir = sys.argv[sys.argv.index("--lwjgl") + 1] if "--lwjgl" in sys.argv else None
     manifest = json.loads(get(MANIFEST))
     entry = next((v for v in manifest["versions"] if v["id"] == version), None)
     if not entry:
@@ -83,14 +77,10 @@ def main():
     jobs.append((client["url"], os.path.join(vdir, version + ".jar"), client["sha1"]))
 
     skipped = []
-    lwjgl = 0
     for lib in info["libraries"]:
         name = lib["name"]
         art = lib.get("downloads", {}).get("artifact")
-        if lwjgl_dir and art and name.startswith("org.lwjgl") and ":natives-" not in name:
-            jobs.append((art["url"], os.path.join(lwjgl_dir, os.path.basename(art["path"])), art["sha1"]))
-            lwjgl += 1
-        if not art or not allowed(lib) or name.startswith(SKIP_PREFIXES) or any(p in name for p in SKIP_PARTS):
+        if not art or not allowed(lib) or any(p in name for p in SKIP_PARTS):
             skipped.append(name)
             continue
         jobs.append((art["url"], os.path.join(out, "libraries", art["path"]), art["sha1"]))
@@ -107,9 +97,8 @@ def main():
     if logging:
         jobs.append((logging["url"], os.path.join(out, logging["id"]), logging["sha1"]))
 
-    print("[fetch] %s: client + %d libraries + %d assets (%d libraries skipped)%s"
-          % (version, len(info["libraries"]) - len(skipped), len(objects), len(skipped),
-             ", %d LWJGL jars to %s" % (lwjgl, lwjgl_dir) if lwjgl_dir else ""), flush=True)
+    print("[fetch] %s: client + %d libraries + %d assets (%d libraries skipped)"
+          % (version, len(info["libraries"]) - len(skipped), len(objects), len(skipped)), flush=True)
     done = new = 0
     with concurrent.futures.ThreadPoolExecutor(16) as pool:
         futures = [pool.submit(fetch, *j) for j in jobs]

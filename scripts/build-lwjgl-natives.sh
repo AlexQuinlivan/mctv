@@ -1,11 +1,7 @@
 #!/usr/bin/env bash
-# LWJGL 3.4.3's own natives for Minecraft 26.x, which nobody ships for tvOS.
-# Built for tvOS and its simulator from LWJGL's tag, with the flags of
-# its macOS build, into build/deps26/lwjgl/<sdk>.
-#
-# patches/lwjgl has two changes from AngelAuraMC's iOS fork.
-# libffi 3.4.6 and later restore exec on their trampoline pages themselves, so
-# Amethyst's hackFix18LWJGL isn't needed.
+# LWJGL 3.4.3's own natives, which nobody ships for tvOS. Built for tvOS and
+# its simulator from LWJGL's tag, with the flags of its macOS build, into
+# build/deps/lwjgl/<sdk>. patches/lwjgl has two changes from AngelAuraMC's iOS fork.
 #
 #   scripts/build-lwjgl-natives.sh
 source "$(dirname "$0")/lib.sh"
@@ -19,11 +15,11 @@ MINOS=26.0
 DEPS="$ROOT/deps/lwjgl3"
 LW="$DEPS/lwjgl3"
 FFI="$DEPS/libffi-$FFI_VERSION"
-OUTDIR="$BUILD/deps26/lwjgl"
-JARS="$BUILD/java-26/lwjgl"
+OUTDIR="$BUILD/deps/lwjgl"
+JARS="$BUILD/game/libraries/org/lwjgl"   # Mojang's LWJGL jars (scripts/fetch-minecraft.py)
 JOBS=$(sysctl -n hw.ncpu)
-JDK=$(/usr/libexec/java_home 2>/dev/null) || die "no JDK for the JNI headers"
-[ -f "$JDK/include/darwin/jni_md.h" ] || die "no JNI headers in $JDK/include"
+JDK="$ROOT/deps/graalvm/Contents/Home"   # for the JNI headers (scripts/setup.sh installs it)
+[ -f "$JDK/include/darwin/jni_md.h" ] || die "no JNI headers in $JDK/include. Run scripts/setup.sh"
 mkdir -p "$DEPS"
 
 # Sources ---------------------------------------------------------------------
@@ -117,15 +113,16 @@ done
 
 # Every native method in Mojang's 3.4.3 jars must be exported, except other
 # platforms' ones.
-if [ -f "$JARS/lwjgl-$LWJGL_TAG.jar" ]; then
+jar() { echo "$JARS/$1/$LWJGL_TAG/$1-$LWJGL_TAG.jar"; }
+if [ -f "$(jar lwjgl)" ]; then
     for sdk in appletvsimulator appletvos; do
         d="$OUTDIR/$sdk"
         say "$sdk: JNI exports against the $LWJGL_TAG jars"
         /usr/bin/python3 -I - \
-            "$JARS/lwjgl-$LWJGL_TAG.jar" "$d/liblwjgl.dylib" '^org\.lwjgl\.system\.(linux|windows|freebsd)\.' \
-            "$JARS/lwjgl-opengl-$LWJGL_TAG.jar" "$d/liblwjgl_opengl.dylib" '^org\.lwjgl\.opengl\.WGL\.' \
-            "$JARS/lwjgl-stb-$LWJGL_TAG.jar" "$d/liblwjgl_stb.dylib" '^$' \
-            "$JARS/lwjgl-vma-$LWJGL_TAG.jar" "$d/liblwjgl_vma.dylib" '^org\.lwjgl\.util\.vma\.Vma\.nvmaGetMemoryWin32Handle' \
+            "$(jar lwjgl)" "$d/liblwjgl.dylib" '^org\.lwjgl\.system\.(linux|windows|freebsd)\.' \
+            "$(jar lwjgl-opengl)" "$d/liblwjgl_opengl.dylib" '^org\.lwjgl\.opengl\.WGL\.' \
+            "$(jar lwjgl-stb)" "$d/liblwjgl_stb.dylib" '^$' \
+            "$(jar lwjgl-vma)" "$d/liblwjgl_vma.dylib" '^org\.lwjgl\.util\.vma\.Vma\.nvmaGetMemoryWin32Handle' \
             <<'PY' || die "$sdk: JNI exports don't match the jars"
 import re, struct, subprocess, sys, zipfile
 
@@ -187,8 +184,8 @@ sys.exit(1 if failed else 0)
 PY
     done
 else
-    say "no 3.4.3 jars in $JARS, skipping the JNI check (scripts/mc-sim.sh --version 26.3 fetches them)"
+    say "no LWJGL $LWJGL_TAG jars in $JARS, skipping the JNI check (scripts/fetch-minecraft.py 26.3 build/game fetches them)"
 fi
 
 ls -l "$OUTDIR"/*/*.dylib
-say "done in ${SECONDS}s: build/deps26/lwjgl/{appletvsimulator,appletvos}"
+say "done: build/deps/lwjgl/{appletvsimulator,appletvos}"

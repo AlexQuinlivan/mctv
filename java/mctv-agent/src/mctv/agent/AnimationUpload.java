@@ -14,7 +14,7 @@ import java.util.WeakHashMap;
 /**
  * Draws animated sprites on the CPU, the way Minecraft 1.21 did.
  *
- * 26.x gives every frame of every animated sprite its own GPU texture (about
+ * Minecraft 26 gives every frame of every animated sprite its own GPU texture (about
  * 640 in vanilla) and draws the current frame into the atlas with the
  * animate_sprite shaders. Here createAnimationState makes Minecraft's own
  * AnimationState with no frame textures, and uploadAnimationFrames writes the

@@ -1,14 +1,11 @@
 #import "MCInput.h"
 #import <GameController/GameController.h>
 #import <QuartzCore/QuartzCore.h>
-#import "JVM.h"
-#import "MCRumble.h"
-#include "bridge/bridge.h"
+#import "Game.h"
+#include "SDLHost.h"
 
-typedef enum { ActNone, ActKey, ActMouse, ActScroll, ActPad } ActKind;
-typedef struct { ActKind kind; int code; } Action;  // key / mouse button / scroll direction / GLFW gamepad button
-
-enum { KeyRelease = 0, KeyPress = 1, KeyRepeat = 2 };  // GLFW_RELEASE / PRESS / REPEAT
+typedef enum { ActNone, ActKey, ActMouse, ActScroll } ActKind;
+typedef struct { ActKind kind; int code; } Action;  // key / mouse button / scroll direction
 
 static const float kDeadzone = 0.12f;
 static const float kLookSpeed = 28.0f;     // game pixels per 60 Hz frame at full deflection
@@ -95,28 +92,6 @@ static CGPoint Curve(CGPoint v) {
     double n = MIN(1.0, (m - kDeadzone) / (1.0 - kDeadzone));
     double k = pow(n, 1.5) / m;
     return CGPointMake(v.x * k, v.y * k);
-}
-
-// GLFW gamepad button for each of ours. -1 for the triggers, which are axes.
-static const int kGLFWButton[MCButtonCount] = {
-    [MCButtonA] = 0, [MCButtonB] = 1, [MCButtonX] = 2, [MCButtonY] = 3,
-    [MCButtonLB] = 4, [MCButtonRB] = 5, [MCButtonLT] = -1, [MCButtonRT] = -1,
-    [MCButtonL3] = 9, [MCButtonR3] = 10,
-    [MCButtonUp] = 11, [MCButtonRight] = 12, [MCButtonDown] = 13, [MCButtonLeft] = 14,
-    [MCButtonMenu] = 7, [MCButtonOptions] = 6,
-};
-
-// An SDL-style GUID (Bluetooth bus, USB vendor and product) so controller mods
-// show the right button glyphs.
-static NSString *PadGUID(GCController *c) {
-    NSString *cat = c.productCategory ?: @"";
-    unsigned vendor = 0x045e, product = 0x0b13;                       // Xbox Series X|S
-    if ([cat containsString:@"DualSense"]) { vendor = 0x054c; product = 0x0ce6; }
-    else if ([cat containsString:@"DualShock"]) { vendor = 0x054c; product = 0x09cc; }
-    else if ([cat containsString:@"Switch"]) { vendor = 0x057e; product = 0x2009; }
-    else if (![cat containsString:@"Xbox"] && c) { vendor = 0; product = 0; }
-    return [NSString stringWithFormat:@"05000000%02x%02x0000%02x%02x000000000000",
-            vendor & 255, vendor >> 8, product & 255, product >> 8];
 }
 
 // --- keyboard tables ---------------------------------------------------------
@@ -226,13 +201,11 @@ static unichar CharForHID(long u, BOOL shift, BOOL caps) {
     CADisplayLink *_link;
     BOOL _pressed[MCButtonCount], _prev[MCButtonCount];
     float _lt, _rt;                  // analog triggers, 0...1
-    BOOL _direct;                    // a mod reads the controller itself (MCGamepadReadByJava)
+    BOOL _direct;                    // Controlify reads the controller itself, through SDL
     BOOL _focusNav;                  // menus driven by the d-pad, so A presses Enter and the pointer hides
     BOOL _pointerMoved;              // the user has moved the pointer at least once
     BOOL _remotePointer;             // the Siri Remote moved the pointer last (shown even when a mod drives the pad)
     double _touchTravel;             // how far the finger has moved since it touched down
-    BOOL _padExtra[15], _padLetGo[15];  // gamepad buttons pressed by the Siri Remote (for controller mods)
-    CFTimeInterval _padDownAt[15];
     CFTimeInterval _lastInput, _lastTick;
     BOOL _keptAwake;
     // Menu-type buttons can go down and up between two frames (tvOS reports
@@ -297,7 +270,6 @@ static unichar CharForHID(long u, BOOL shift, BOOL caps) {
     }
     if (pad != _controller) {
         _controller = pad;
-        MCRumbleUseController(pad);
         MCLog(@"input: %@", pad ? [NSString stringWithFormat:@"using controller \"%@\"", pad.vendorName] : @"no game controller");
         if (pad) {
             [self latch:pad.extendedGamepad.buttonMenu into:&_latch[MCButtonMenu] name:@"controller Menu"];
@@ -408,19 +380,19 @@ static unichar CharForHID(long u, BOOL shift, BOOL caps) {
 - (void)setRightStick:(CGPoint)value { _right = value; }
 
 - (void)movePointerTo:(CGPoint)p {
-    CallbackBridge_nativeSendCursorPos(ACTION_MOVE, p.x, p.y);
+    MCSDLPointerTo(p.x, p.y);
 }
 
 // Move the pointer (menus) or turn the camera (playing) by d game pixels.
 - (void)nudge:(CGPoint)d {
     if (d.x == 0 && d.y == 0) return;
-    if (isGrabbing) {
-        CallbackBridge_nativeSendCursorPos(ACTION_MOVE_MOTION, d.x, d.y);
+    if (MCMouseGrabbed) {
+        MCSDLPointerBy(d.x, d.y);
         return;
     }
-    double x = MAX(0, MIN(windowWidth - 1, cursorX + d.x));
-    double y = MAX(0, MIN(windowHeight - 1, cursorY + d.y));
-    CallbackBridge_nativeSendCursorPos(ACTION_MOVE, x, y);
+    double x = MAX(0, MIN(MCScreenWidth - 1, MCPointerX + d.x));
+    double y = MAX(0, MIN(MCScreenHeight - 1, MCPointerY + d.y));
+    MCSDLPointerTo(x, y);
     _pointerMoved = YES;
 }
 
@@ -450,30 +422,11 @@ static unichar CharForHID(long u, BOOL shift, BOOL caps) {
     _rt = g.rightTrigger.value;
 }
 
-// The pad as a GLFW gamepad, for controller mods. While one reads it, the
-// key/mouse translation below stands down.
-- (void)publishPad {
-    MCGamepadState st = {0};
-    for (int b = 0; b < MCButtonCount; b++)
-        if (kGLFWButton[b] >= 0) st.buttons[kGLFWButton[b]] = _pressed[b];
-    CFTimeInterval now = CACurrentMediaTime();
-    for (int i = 0; i < 15; i++) {
-        if (_padExtra[i] && _padLetGo[i] && now - _padDownAt[i] > 0.08) _padExtra[i] = _padLetGo[i] = NO;
-        if (_padExtra[i]) st.buttons[i] = 1;
-    }
-    st.axes[0] = _left.x;
-    st.axes[1] = -_left.y;   // GLFW's y points down
-    st.axes[2] = _right.x;
-    st.axes[3] = -_right.y;
-    float lt = _script ? (_pressed[MCButtonLT] ? 1 : 0) : _lt;
-    float rt = _script ? (_pressed[MCButtonRT] ? 1 : 0) : _rt;
-    st.axes[4] = lt * 2 - 1;
-    st.axes[5] = rt * 2 - 1;
+// Controlify reads the controller through its own SDL. While it does, the key
+// and mouse translation below stands down.
+- (void)updateDirect {
     BOOL connected = _controller != nil || _script != nil;
-    NSString *name = _controller.vendorName ?: @"Scripted pad";
-    MCGamepadPublish(connected, &st, name.UTF8String, PadGUID(_controller).UTF8String);
-
-    BOOL direct = connected && MCGamepadReadByJava();
+    BOOL direct = connected && MCControllerToMods;
     if (direct == _direct) return;
     _direct = direct;
     MCLog(@"input: %@", direct ? @"a mod reads the controller directly, so key and mouse translation is off"
@@ -504,7 +457,7 @@ static unichar CharForHID(long u, BOOL shift, BOOL caps) {
         if (touching && _touching) {
             double dx = p.x - _touchLast.x, dy = p.y - _touchLast.y;
             if (fabs(dx) < 0.5 && fabs(dy) < 0.5 && (dx != 0 || dy != 0)) {  // ignore jumps (finger lifted and put down elsewhere)
-                double gain = isGrabbing ? kTouchLook : kTouchPointer;
+                double gain = MCMouseGrabbed ? kTouchLook : kTouchPointer;
                 [self nudge:CGPointMake(dx * gain, -dy * gain)];
                 _lastInput = CACurrentMediaTime();
                 _touchTravel += hypot(dx, dy);
@@ -530,14 +483,13 @@ static unichar CharForHID(long u, BOOL shift, BOOL caps) {
     }
 }
 
-// What a Siri Remote press does, decided when it goes down. The ring moves
-// focus in menus, through the controller mod's d-pad when one drives the pad,
-// so remote and controller share one highlight. The centre presses the
-// highlighted button, or clicks at the pointer after a swipe.
+// What a Siri Remote press does, decided when it goes down. In menus the ring
+// sends arrow keys, which move Controlify's highlight too, and the centre
+// presses the highlighted button, or clicks at the pointer after a swipe.
 - (Action)remoteAction:(RemoteButton)b {
     BOOL dir = b == RemoteUp || b == RemoteDown || b == RemoteLeft || b == RemoteRight;
     if (!dir && b != RemoteClick) return RemoteBinding(b);
-    if (isGrabbing) {
+    if (MCMouseGrabbed) {
         switch (b) {
             case RemoteLeft: return (Action){ActScroll, 1};                // hotbar
             case RemoteRight: return (Action){ActScroll, -1};
@@ -546,30 +498,19 @@ static unichar CharForHID(long u, BOOL shift, BOOL caps) {
             default: return (Action){ActMouse, GLFW_MOUSE_BUTTON_LEFT};    // attack / break
         }
     }
-    // With Controlify on GLFW (1.21.11) the ring drives its focus through the
-    // GLFW pad. On SDL (26.x) Controlify reads controllers through SDL, which
-    // doesn't see the remote, so the ring sends arrow keys and Enter instead.
-    BOOL viaPad = _direct && !MCSDLMode;
-    if (b == RemoteClick) {
-        if (!_focusNav) return (Action){ActMouse, GLFW_MOUSE_BUTTON_LEFT};
-        return viaPad ? (Action){ActPad, 0} : (Action){ActKey, GLFW_KEY_ENTER};
-    }
+    if (b == RemoteClick)
+        return _focusNav ? (Action){ActKey, GLFW_KEY_ENTER} : (Action){ActMouse, GLFW_MOUSE_BUTTON_LEFT};
     _focusNav = YES;
-    static const int pad[] = {[RemoteUp] = 11, [RemoteRight] = 12, [RemoteDown] = 13, [RemoteLeft] = 14};
     static const int key[] = {[RemoteUp] = GLFW_KEY_DPAD_UP, [RemoteRight] = GLFW_KEY_DPAD_RIGHT,
                               [RemoteDown] = GLFW_KEY_DPAD_DOWN, [RemoteLeft] = GLFW_KEY_DPAD_LEFT};
-    return viaPad ? (Action){ActPad, pad[b]} : (Action){ActKey, key[b]};
+    return (Action){ActKey, key[b]};
 }
 
 - (void)send:(Action)a down:(BOOL)down {
     switch (a.kind) {
-        case ActKey: CallbackBridge_nativeSendKey(a.code, 0, down ? KeyPress : KeyRelease, 0); break;
-        case ActMouse: CallbackBridge_nativeSendMouseButton(a.code, down ? 1 : 0, 0); break;
-        case ActScroll: if (down) CallbackBridge_nativeSendScroll(0, a.code); break;
-        case ActPad:  // held at least 80 ms in publishPad, so a mod polling per frame sees a quick click
-            if (down) { _padExtra[a.code] = YES; _padLetGo[a.code] = NO; _padDownAt[a.code] = CACurrentMediaTime(); }
-            else _padLetGo[a.code] = YES;
-            break;
+        case ActKey: MCSDLKey(a.code, 0, down); break;
+        case ActMouse: MCSDLButton(a.code, down); break;
+        case ActScroll: if (down) MCSDLScroll(0, a.code); break;
         case ActNone: break;
     }
 }
@@ -585,7 +526,7 @@ static unichar CharForHID(long u, BOOL shift, BOOL caps) {
     if (code == UIKeyboardHIDUsageKeyboardCapsLock && down) _mods ^= GLFW_MOD_CAPS_LOCK;
     int key = GLFWKeyForHID(code);
     if (!key) return;
-    CallbackBridge_nativeSendKey(key, (int)code, down ? KeyPress : KeyRelease, _mods);
+    MCSDLKey(key, (int)code, down);
     if (down) {
         [self typeKey:code];
         if (!bit && code != UIKeyboardHIDUsageKeyboardCapsLock) {
@@ -602,16 +543,15 @@ static unichar CharForHID(long u, BOOL shift, BOOL caps) {
     if (_mods & (GLFW_MOD_CONTROL | GLFW_MOD_SUPER)) return;
     unichar c = CharForHID(code, (_mods & GLFW_MOD_SHIFT) != 0, (_mods & GLFW_MOD_CAPS_LOCK) != 0);
     if (!c) return;
-    // Minecraft registers one of the two callbacks. The bridge drops the other.
-    if (!CallbackBridge_nativeSendCharMods(c, _mods)) CallbackBridge_nativeSendChar(c);
+    MCSDLChar(c);
 }
 
 - (void)repeatKeys {
-    if (!_repeatKey || isGrabbing) return;  // repeat is for menus and text fields
+    if (!_repeatKey || MCMouseGrabbed) return;  // repeat is for menus and text fields
     CFTimeInterval now = CACurrentMediaTime();
     if (now < _repeatAt) return;
     _repeatAt = now + kRepeatRate;
-    CallbackBridge_nativeSendKey(GLFWKeyForHID(_repeatKey), (int)_repeatKey, KeyRepeat, _mods);
+    MCSDLKey(GLFWKeyForHID(_repeatKey), (int)_repeatKey, true);
     [self typeKey:_repeatKey];
 }
 
@@ -645,7 +585,7 @@ static unichar CharForHID(long u, BOOL shift, BOOL caps) {
 - (void)releaseMovement {
     const int keys[4] = {GLFW_KEY_W, GLFW_KEY_A, GLFW_KEY_S, GLFW_KEY_D};
     for (int i = 0; i < 4; i++) {
-        if (_move[i]) CallbackBridge_nativeSendKey(keys[i], 0, KeyRelease, 0);
+        if (_move[i]) MCSDLKey(keys[i], 0, false);
         _move[i] = NO;
     }
 }
@@ -654,7 +594,7 @@ static unichar CharForHID(long u, BOOL shift, BOOL caps) {
     BOOL want = _move[i] ? v > 0.35 : v > 0.5;  // hysteresis
     if (want != _move[i]) {
         _move[i] = want;
-        CallbackBridge_nativeSendKey(key, 0, want ? KeyPress : KeyRelease, 0);
+        MCSDLKey(key, 0, want);
     }
 }
 
@@ -664,9 +604,9 @@ static unichar CharForHID(long u, BOOL shift, BOOL caps) {
     _lastTick = now;
     if (_script) [self stepScript];
     else if (_controller) [self readController];
-    [self publishPad];
+    [self updateDirect];
 
-    BOOL grab = isGrabbing;
+    BOOL grab = MCMouseGrabbed;
     if (grab != _wasGrabbing) {
         [self releaseMovement];
         _wasGrabbing = grab;
@@ -704,7 +644,7 @@ static unichar CharForHID(long u, BOOL shift, BOOL caps) {
             [self nudge:CGPointMake(l.x * kPointerSpeed * frames, -l.y * kPointerSpeed * frames)];
             if (fabs(_right.y) > 0.5) {
                 if (_scrollRepeat-- <= 0) {
-                    CallbackBridge_nativeSendScroll(0, _right.y > 0 ? 1 : -1);
+                    MCSDLScroll(0, _right.y > 0 ? 1 : -1);
                     _scrollRepeat = 6;
                 }
             } else {
@@ -728,13 +668,13 @@ static unichar CharForHID(long u, BOOL shift, BOOL caps) {
     // centred until the user moves it. It hides while the d-pad or a
     // controller mod drives the menus.
     if (_direct && (l.x || l.y || r.x || r.y)) _remotePointer = NO;
-    BOOL showPointer = !grab && isInputReady && !_focusNav && (!_direct || _remotePointer);
-    if (showPointer && !_pointerMoved && cursorX == 0 && cursorY == 0)
-        [self movePointerTo:CGPointMake(windowWidth / 2, windowHeight / 2)];
+    BOOL showPointer = !grab && MCInputReady && !_focusNav && (!_direct || _remotePointer);
+    if (showPointer && !_pointerMoved && MCPointerX == 0 && MCPointerY == 0)
+        [self movePointerTo:CGPointMake(MCScreenWidth / 2, MCScreenHeight / 2)];
     _pointer.hidden = !showPointer;
     if (showPointer) {
         CGRect f = _pointer.frame;
-        f.origin = CGPointMake(cursorX / _scale, cursorY / _scale);
+        f.origin = CGPointMake(MCPointerX / _scale, MCPointerY / _scale);
         _pointer.frame = f;
     }
 }
@@ -814,8 +754,8 @@ static unichar CharForHID(long u, BOOL shift, BOOL caps) {
         [self hidKey:code down:NO];
     } else if ([op isEqualToString:@"click"]) {
         int button = w.count > 1 && [w[1] isEqualToString:@"right"] ? GLFW_MOUSE_BUTTON_RIGHT : GLFW_MOUSE_BUTTON_LEFT;
-        CallbackBridge_nativeSendMouseButton(button, 1, 0);
-        CallbackBridge_nativeSendMouseButton(button, 0, 0);
+        MCSDLButton(button, true);
+        MCSDLButton(button, false);
     } else if ([op isEqualToString:@"log"]) {
         // logged below
     } else if (step.length) {
@@ -824,7 +764,7 @@ static unichar CharForHID(long u, BOOL shift, BOOL caps) {
     if (step.length) {
         NSDateFormatter *f = [NSDateFormatter new];
         f.dateFormat = @"HH:mm:ss.S";
-        MCLog(@"input test %6.1fs %@: %@ (grabbed %d, pointer %.0f,%.0f)", t, [f stringFromDate:NSDate.date], step, isGrabbing, cursorX, cursorY);
+        MCLog(@"input test %6.1fs %@: %@ (grabbed %d, pointer %.0f,%.0f)", t, [f stringFromDate:NSDate.date], step, MCMouseGrabbed, MCPointerX, MCPointerY);
     }
     [_script removeObjectAtIndex:0];
 }

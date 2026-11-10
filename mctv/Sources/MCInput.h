@@ -1,5 +1,5 @@
-// Turns controllers, keyboards and the Siri Remote into Minecraft's GLFW input
-// (keys, mouse buttons, cursor, scroll and typed characters).
+// Turns controllers, keyboards and the Siri Remote into Minecraft's input
+// (keys, mouse buttons, pointer, scroll and typed characters), through SDL.
 //
 // Game controllers (extended gamepads) have two modes that follow Minecraft's
 // mouse grab.

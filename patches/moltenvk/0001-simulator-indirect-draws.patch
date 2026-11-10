@@ -1,5 +1,5 @@
 The tvOS simulator reports a lower GPU family than any Apple TV, so MoltenVK turns off
-indirect drawing with a base instance, which Minecraft 26.x needs. The Mac GPU behind it has it.
+indirect drawing with a base instance, which Minecraft needs. The Mac GPU behind it has it.
 
 diff --git a/MoltenVK/MoltenVK/GPUObjects/MVKDevice.mm b/MoltenVK/MoltenVK/GPUObjects/MVKDevice.mm
 index 9772757..23dd09f 100644
